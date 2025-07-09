@@ -9,7 +9,14 @@
  *
  * Unless required by applicable law or agreed to in writing,
  * software distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either expres        // Store baseline results in both holders for access by child processes and CSV reporter
+        BaselineResultsHolder.setBaselineResults(baselineResults);
+        BaselineResultsFileHolder.storeBaselineResults(baselineResults);
+        
+        LOG.info("Captured baseline results for " + baselineResults.size() + " tests");
+        LOG.info("Found " + failingTestNames.size() + " failing tests: " + failingTestNames);
+        LOG.info("Found " + failingTestLines.size() + " lines covered by failing tests: " + failingTestLines);
+        LOG.info("Failing test lines by class: " + failingTestLinesByClass);ed.
  * See the License for the specific language governing permissions and limitations under the License.
  */
 package org.pitest.mutationtest.tooling;
@@ -21,8 +28,13 @@ import org.pitest.classpath.ClassPathByteArraySource;
 import org.pitest.classpath.ClassloaderByteArraySource;
 import org.pitest.classpath.CodeSource;
 import org.pitest.coverage.CoverageDatabase;
+import org.pitest.coverage.CoverageData;
 import org.pitest.coverage.CoverageGenerator;
 import org.pitest.coverage.CoverageSummary;
+import org.pitest.coverage.BlockCoverage;
+import org.pitest.coverage.BlockLocation;
+import org.pitest.coverage.TestInfo;
+import org.pitest.coverage.ClassLine;
 import org.pitest.coverage.NoCoverage;
 import org.pitest.coverage.ReportCoverage;
 import org.pitest.help.Help;
@@ -52,6 +64,8 @@ import org.pitest.mutationtest.statistics.MutationStatistics;
 import org.pitest.mutationtest.statistics.MutationStatisticsListener;
 import org.pitest.mutationtest.statistics.Score;
 import org.pitest.mutationtest.verify.BuildMessage;
+import org.pitest.mutationtest.execute.BaselineResultsHolder;
+import org.pitest.mutationtest.execute.BaselineResultsFileHolder;
 import org.pitest.util.Log;
 import org.pitest.util.StringUtil;
 import org.pitest.util.Timings;
@@ -62,7 +76,10 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -163,6 +180,10 @@ public class MutationCoverage {
     LOG.fine("Free Memory after coverage calculation "
         + (runtime.freeMemory() / MB) + " mb");
 
+    // Capture baseline results in main process for fullMatrixResearchMode
+    if (this.data.isFullMatrixResearchMode()) {
+      captureBaselineResultsInMainProcess(coverageData);
+    }
 
     this.timings.registerStart(Timings.Stage.BUILD_MUTATION_TESTS);
     final List<MutationAnalysisUnit> tus = buildMutationTests(coverageData, history,
@@ -359,14 +380,14 @@ public class MutationCoverage {
         .getConfiguration(), mutationConfig, args,
         new PercentAndConstantTimeoutStrategy(this.data.getTimeoutFactor(),
             this.data.getTimeoutConstant()), this.data.getVerbosity(), this.data.isFullMutationMatrix(),
-            this.data.getClassPath().getLocalClassPath());
+            this.data.isFullMatrixResearchMode(), this.data.getClassPath().getLocalClassPath());
 
     final MutationGrouper grouper = this.settings.getMutationGrouper().makeFactory(
         this.data.getFreeFormProperties(), this.code,
         this.data.getNumberOfThreads(), this.data.getMutationUnitSize());
 
     final MutationTestBuilder builder = new MutationTestBuilder(data.mode(), wf, history,
-        source, grouper);
+        source, grouper, this.code);
 
     return builder.createMutationTestUnits(this.code.getCodeUnderTestNames());
   }
@@ -377,6 +398,193 @@ public class MutationCoverage {
       } else {
         LOG.warning(Help.NO_MUTATIONS_FOUND.toString());
       }
+    }
+  }
+
+  /**
+   * Capture baseline test results in the main process for fullMatrixResearchMode.
+   * This extracts test pass/fail status from the coverage data that was just calculated.
+   * Records which lines are covered by failing tests and which lines are covered by passing tests
+   * for mutation filtering and analysis.
+   */
+  private void captureBaselineResultsInMainProcess(CoverageDatabase coverageData) {
+    try {
+      LOG.info("Capturing baseline test results for fullMatrixResearchMode");
+      
+      Map<String, Boolean> baselineResults = new HashMap<>();
+      Set<String> failingTestNames = new HashSet<>();
+      Set<String> passingTestNames = new HashSet<>();
+      Set<Integer> failingTestLines = new HashSet<>();
+      Set<Integer> passingTestLines = new HashSet<>();
+      Map<String, Set<Integer>> failingTestLinesByClass = new HashMap<>();
+      Map<String, Set<Integer>> passingTestLinesByClass = new HashMap<>();
+      Set<String> failingTestClassLines = new HashSet<>();
+      Set<String> passingTestClassLines = new HashSet<>();
+      
+      // Access the CoverageData object to get test results
+      if (coverageData instanceof CoverageData) {
+        CoverageData cd = (CoverageData) coverageData;
+        
+        // First, collect all unique tests from all block coverage
+        Set<TestInfo> allTests = new HashSet<>();
+        for (BlockCoverage blockCov : cd.createCoverage()) {
+          Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockCov.getBlock());
+          allTests.addAll(testsForBlock);
+        }
+        
+        // Get failing test names from the failing test descriptions
+        Set<String> failingTestDescs = cd.getFailingTestDescriptions().stream()
+            .map(desc -> desc.getQualifiedName())
+            .collect(java.util.stream.Collectors.toSet());
+        
+        LOG.info("Found failing test descriptions: " + failingTestDescs);
+        
+        // Get failing test names
+        for (TestInfo testInfo : allTests) {
+          String testName = testInfo.getName();
+          
+          // A test is considered failed if it's in the failing test descriptions
+          boolean testPassed = !cd.getFailingTestDescriptions().stream()
+              .anyMatch(desc -> desc.getQualifiedName().equals(testName));
+          
+          baselineResults.put(testName, testPassed);
+          
+          if (!testPassed) {
+            failingTestNames.add(testName);
+            LOG.info("Detected failing test: " + testName);
+          } else {
+            passingTestNames.add(testName);
+            LOG.fine("Detected passing test: " + testName);
+          }
+        }
+        
+        // Now collect lines covered by failing and passing tests using block level coverage
+        for (ClassName className : this.code.getCodeUnderTestNames()) {
+          Set<ClassLine> coveredLines = cd.getCoveredLines(className);
+          Set<Integer> failingLines = new HashSet<>();
+          Set<Integer> passingLines = new HashSet<>();
+          
+          for (ClassLine line : coveredLines) {
+            int lineNumber = line.getLineNumber();
+            boolean coveredByFailingTest = false;
+            boolean coveredByPassingTest = false;
+            
+            // Check all block coverage to find blocks that cover this specific line
+            for (BlockCoverage blockCov : cd.createCoverage()) {
+              BlockLocation blockLocation = blockCov.getBlock();
+              
+              // Only check blocks from the same class
+              if (blockLocation.getLocation().getClassName().equals(className)) {
+                // Get the lines covered by this block using reflection to access LegacyClassCoverage
+                Set<Integer> blockLines = getBlockLines(cd, blockLocation);
+                
+                // Check if this block covers the current line
+                if (blockLines.contains(lineNumber)) {
+                  // Get the tests that cover this specific block
+                  Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockLocation);
+                  
+                  // Check if any of the tests for this block are failing tests
+                  boolean blockCoveredByFailingTest = testsForBlock.stream()
+                      .anyMatch(test -> failingTestDescs.contains(test.getName()));
+                  
+                  // Check if any of the tests for this block are passing tests
+                  boolean blockCoveredByPassingTest = testsForBlock.stream()
+                      .anyMatch(test -> !failingTestDescs.contains(test.getName()));
+                  
+                  if (blockCoveredByFailingTest) {
+                    coveredByFailingTest = true;
+                  }
+                  
+                  if (blockCoveredByPassingTest) {
+                    coveredByPassingTest = true;
+                  }
+                  
+                  // Continue checking all blocks to get complete coverage
+                }
+              }
+            }
+            
+            if (coveredByFailingTest) {
+              failingTestLines.add(lineNumber);
+              failingLines.add(lineNumber);
+              failingTestClassLines.add(className.asJavaName() + ":" + lineNumber);
+              
+              LOG.fine("Line " + lineNumber + " in class " + className + " is covered by failing test");
+            }
+            
+            if (coveredByPassingTest) {
+              passingTestLines.add(lineNumber);
+              passingLines.add(lineNumber);
+              passingTestClassLines.add(className.asJavaName() + ":" + lineNumber);
+              
+              LOG.fine("Line " + lineNumber + " in class " + className + " is covered by passing test");
+            }
+          }
+          
+          if (!failingLines.isEmpty()) {
+            failingTestLinesByClass.put(className.asJavaName(), failingLines);
+          }
+          
+          if (!passingLines.isEmpty()) {
+            passingTestLinesByClass.put(className.asJavaName(), passingLines);
+          }
+        }
+        
+        // Store baseline results in both holders for access by child processes and CSV reporter
+        BaselineResultsHolder.setBaselineResults(baselineResults);
+        BaselineResultsFileHolder.storeBaselineResults(baselineResults);
+        
+        LOG.info("Captured baseline results for " + baselineResults.size() + " tests");
+        LOG.info("Found " + failingTestNames.size() + " failing tests");
+        LOG.info("Found " + passingTestNames.size() + " passing tests");
+        LOG.info("Found " + failingTestLines.size() + " lines covered by failing tests");
+        LOG.info("Found " + passingTestLines.size() + " lines covered by passing tests");
+        LOG.info("Failing test lines by class: " + failingTestLinesByClass);
+        LOG.info("Passing test lines by class: " + passingTestLinesByClass);
+        LOG.info("Failing test class:lines (" + failingTestClassLines.size() + " total): " + failingTestClassLines);
+        LOG.info("Passing test class:lines (" + passingTestClassLines.size() + " total): " + passingTestClassLines);
+        
+        // Save failing test lines data to BaselineResultsHolder for use by FailingTestCoverageFilter
+        try {
+            org.pitest.mutationtest.execute.BaselineResultsHolder.setFailingTestLines(failingTestClassLines);
+            org.pitest.mutationtest.execute.BaselineResultsHolder.setFailingTestLinesByClass(failingTestLinesByClass);
+            LOG.info("Saved failing test lines data to BaselineResultsHolder");
+        } catch (Exception e) {
+            LOG.warning("Failed to save failing test lines to BaselineResultsHolder: " + e.getMessage());
+        }
+        
+      } else {
+        LOG.warning("Coverage data is not a CoverageData instance, cannot extract test results");
+      }
+      
+    } catch (Exception e) {
+      LOG.warning("Failed to capture baseline results: " + e.getMessage());
+      e.printStackTrace();
+    }
+  }
+
+  /**
+   * Helper method to get lines covered by a specific block.
+   * Uses reflection to access the private getLinesForBlock method in LegacyClassCoverage.
+   */
+  private Set<Integer> getBlockLines(CoverageData cd, BlockLocation blockLocation) {
+    try {
+      // Access the legacyClassCoverage field
+      java.lang.reflect.Field legacyField = CoverageData.class.getDeclaredField("legacyClassCoverage");
+      legacyField.setAccessible(true);
+      Object legacyClassCoverage = legacyField.get(cd);
+      
+      // Call the getLinesForBlock method
+      java.lang.reflect.Method getLinesMethod = legacyClassCoverage.getClass().getDeclaredMethod("getLinesForBlock", BlockLocation.class);
+      getLinesMethod.setAccessible(true);
+      
+      @SuppressWarnings("unchecked")
+      Set<Integer> lines = (Set<Integer>) getLinesMethod.invoke(legacyClassCoverage, blockLocation);
+      return lines != null ? lines : Collections.emptySet();
+      
+    } catch (Exception e) {
+      LOG.fine("Could not access block lines for " + blockLocation + ": " + e.getMessage());
+      return Collections.emptySet();
     }
   }
 

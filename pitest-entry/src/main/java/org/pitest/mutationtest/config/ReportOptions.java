@@ -120,6 +120,8 @@ public class ReportOptions {
 
   private boolean                        fullMutationMatrix            = false;
 
+  private boolean                        fullMatrixResearchMode        = false;
+
   private int                            mutationUnitSize;
   private boolean                        shouldCreateTimestampedReports = true;
   private boolean                        detectInlinedCode              = false;
@@ -449,6 +451,14 @@ public class ReportOptions {
     return fullMutationMatrix;
   }
 
+  public void setFullMatrixResearchMode(final boolean fullMatrixResearchMode) {
+    this.fullMatrixResearchMode = fullMatrixResearchMode;
+  }
+
+  public boolean isFullMatrixResearchMode() {
+    return fullMatrixResearchMode;
+  }
+
   public int getMutationUnitSize() {
     return this.mutationUnitSize;
   }
@@ -705,6 +715,7 @@ public class ReportOptions {
             .add("outputs=" + outputs)
             .add("groupConfig=" + groupConfig)
             .add("fullMutationMatrix=" + fullMutationMatrix)
+            .add("fullMatrixResearchMode=" + fullMatrixResearchMode)
             .add("mutationUnitSize=" + mutationUnitSize)
             .add("shouldCreateTimestampedReports=" + shouldCreateTimestampedReports)
             .add("detectInlinedCode=" + detectInlinedCode)

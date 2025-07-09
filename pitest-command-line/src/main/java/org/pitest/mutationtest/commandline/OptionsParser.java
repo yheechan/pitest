@@ -64,6 +64,7 @@ import static org.pitest.mutationtest.config.ConfigOption.EXCLUDED_TEST_CLASSES;
 import static org.pitest.mutationtest.config.ConfigOption.EXPORT_LINE_COVERAGE;
 import static org.pitest.mutationtest.config.ConfigOption.FAIL_WHEN_NOT_MUTATIONS;
 import static org.pitest.mutationtest.config.ConfigOption.FEATURES;
+import static org.pitest.mutationtest.config.ConfigOption.FULL_MATRIX_RESEARCH_MODE;
 import static org.pitest.mutationtest.config.ConfigOption.FULL_MUTATION_MATRIX;
 import static org.pitest.mutationtest.config.ConfigOption.HISTORY_INPUT_LOCATION;
 import static org.pitest.mutationtest.config.ConfigOption.HISTORY_OUTPUT_LOCATION;
@@ -137,6 +138,7 @@ public class OptionsParser {
   private final OptionSpec<String>                   includedGroupsSpec;
   private final OptionSpec<String>                   includedTestMethodsSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> fullMutationMatrixSpec;
+  private final ArgumentAcceptingOptionSpec<Boolean> fullMatrixResearchModeSpec;
   private final OptionSpec<Integer>                  mutationUnitSizeSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> timestampedReportsSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> detectInlinedCode;
@@ -357,6 +359,13 @@ public class OptionsParser {
             "Whether to create a full mutation matrix")
         .defaultsTo(FULL_MUTATION_MATRIX.getDefault(Boolean.class));
 
+    this.fullMatrixResearchModeSpec = parserAccepts(FULL_MATRIX_RESEARCH_MODE)
+        .withOptionalArg()
+        .ofType(Boolean.class)
+        .describedAs(
+            "Whether to enable full matrix research mode (runs all tests for each mutant and exports detailed CSV)")
+        .defaultsTo(FULL_MATRIX_RESEARCH_MODE.getDefault(Boolean.class));
+
     this.mutationUnitSizeSpec = parserAccepts(MUTATION_UNIT_SIZE)
         .withRequiredArg()
         .ofType(Integer.class)
@@ -456,12 +465,21 @@ public class OptionsParser {
             .collect(Collectors.toList()));
     data.setSourceDirs(asPaths(this.sourceDirSpec.values(userArgs)));
     data.setMutators(this.mutators.values(userArgs));
-    data.setFeatures(this.features.values(userArgs));
+    
+    // Set features and automatically enable FULL_MATRIX_RESEARCH when research mode is enabled
+    List<String> features = new ArrayList<>(this.features.values(userArgs));
+    boolean researchMode = booleanValue(fullMatrixResearchModeSpec, userArgs);
+    if (researchMode) {
+      // Automatically enable the FULL_MATRIX_RESEARCH feature when research mode is set
+      features.add("+FULL_MATRIX_RESEARCH");
+    }
+    data.setFeatures(features);
 
     data.setArgLine(this.argLine.value(userArgs));
 
     data.addChildJVMArgs(this.jvmArgsProcessor.values(userArgs));
     data.setFullMutationMatrix(booleanValue(fullMutationMatrixSpec, userArgs));
+    data.setFullMatrixResearchMode(researchMode);
 
     data.setDetectInlinedCode(booleanValue(detectInlinedCode, userArgs));
 

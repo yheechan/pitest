@@ -78,6 +78,7 @@ import org.pitest.mutationtest.engine.gregor.config.GregorEngineFactory;
 import org.pitest.mutationtest.execute.MutationAnalysisExecutor;
 import org.pitest.mutationtest.incremental.NullHistory;
 import org.pitest.mutationtest.tooling.JarCreatingJarFinder;
+import org.pitest.classpath.CodeSource;
 import org.pitest.process.DefaultJavaExecutableLocator;
 import org.pitest.process.JavaAgent;
 import org.pitest.process.LaunchOptions;
@@ -288,14 +289,14 @@ public class TestMutationTesting {
     final WorkerFactory wf = new WorkerFactory(null,
         coverageOptions.getPitConfig(), mutationConfig, arguments,
         new PercentAndConstantTimeoutStrategy(data.getTimeoutFactor(),
-            data.getTimeoutConstant()), data.getVerbosity(), false, data.getClassPath()
+            data.getTimeoutConstant()), data.getVerbosity(), false, false, data.getClassPath()
             .getLocalClassPath());
 
 
 
 
     final MutationTestBuilder builder = new MutationTestBuilder(mode, wf,
-        new NullHistory(), source, new DefaultGrouper(0));
+        new NullHistory(), source, new DefaultGrouper(0), code);
 
     final List<MutationAnalysisUnit> tus = builder
         .createMutationTestUnits(codeClasses);

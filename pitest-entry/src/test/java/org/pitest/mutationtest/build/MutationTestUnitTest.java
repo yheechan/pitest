@@ -13,6 +13,7 @@ import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.pitest.classinfo.ClassName;
+import org.pitest.classpath.CodeSource;
 import org.pitest.mutationtest.DetectionStatus;
 import org.pitest.mutationtest.EngineArguments;
 import org.pitest.mutationtest.MutationConfig;
@@ -45,6 +46,9 @@ public class MutationTestUnitTest {
   @Mock
   private MutationEngine        engine;
 
+  @Mock
+  private CodeSource            codeSource;
+
   @Before
   public void setUp() {
     MockitoAnnotations.openMocks(this);
@@ -54,7 +58,7 @@ public class MutationTestUnitTest {
     this.tests = new ArrayList<>();
     this.testee = new MutationTestUnit(this.mutations,
         new WorkerFactory(null, TestPluginArguments.defaults(), this.mutationConfig, EngineArguments.arguments(), this.timeout,
-            Verbosity.DEFAULT, false, null));
+            Verbosity.DEFAULT, false, false, null), this.codeSource);
 
   }
 
@@ -72,7 +76,7 @@ public class MutationTestUnitTest {
   public void shouldReportPriorityBasedOnNumberOfMutations() {
     this.mutations.add(MutationDetailsMother.aMutationDetail().build());
     this.testee = new MutationTestUnit(MutationDetailsMother.aMutationDetail()
-        .build(42), null);
+        .build(42), null, this.codeSource);
     assertThat(this.testee.priority()).isEqualTo(42);
   }
 

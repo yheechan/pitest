@@ -168,6 +168,11 @@ public enum ConfigOption {
   FULL_MUTATION_MATRIX("fullMutationMatrix", false),
 
   /**
+   * Whether to enable full matrix research mode - runs all tests for each mutant and exports detailed CSV.
+   */
+  FULL_MATRIX_RESEARCH_MODE("fullMatrixResearchMode", false),
+
+  /**
    * Maximum number of mutations to include within a single unit of analysis.
    */
   MUTATION_UNIT_SIZE("mutationUnitSize", 0),

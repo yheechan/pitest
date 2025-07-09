@@ -65,4 +65,16 @@ public class TimeOutDecoratedTestSource {
     };
   }
 
+  /**
+   * Get all available tests instead of just covering tests.
+   * Used for research mode where we want to run all tests against all mutants.
+   */
+  public List<TestUnit> getAllTests() {
+    return this.allTests.values().stream()
+        .map(tu -> new MutationTimeoutDecorator(tu,
+            new TimeOutSystemExitSideEffect(this.r),
+            this.timeoutStrategy, 
+            0)) // Use default timeout since we don't have test-specific timing
+        .collect(Collectors.toList());
+  }
 }

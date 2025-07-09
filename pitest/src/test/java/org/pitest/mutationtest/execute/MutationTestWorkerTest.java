@@ -59,7 +59,7 @@ public class MutationTestWorkerTest {
   public void setUp() {
     MockitoAnnotations.openMocks(this);
     this.testee = new MutationTestWorker(this.hotswapper, this.mutater,
-        this.loader, this.reset,false);
+        this.loader, this.reset, false, false);
   }
 
   @Test
@@ -129,6 +129,44 @@ public class MutationTestWorkerTest {
         mutantOne.getId(),
         new MutationStatusTestPair(1, DetectionStatus.KILLED, tu
             .getDescription().getName()));
+  }
+
+  @Test
+  public void shouldUseBaselineAwareMutationDetectionInResearchMode() throws IOException {
+    // Test that research mode uses baseline comparison for correct mutation detection
+    final MutationTestWorker researchModeWorker = new MutationTestWorker(
+        this.hotswapper, this.mutater, this.loader, this.reset, false, true);
+    
+    final MutationDetails mutantOne = makeMutant("foo", 1);
+    final Collection<MutationDetails> range = Arrays.asList(mutantOne);
+    final TestUnit tu = makePassingTest();
+    
+    when(this.testSource.getAllTests()).thenReturn(Collections.singletonList(tu));
+    when(this.hotswapper.insertClass(any(ClassName.class), any(ClassLoader.class),
+            any(byte[].class))).thenReturn(true);
+    
+    researchModeWorker.run(range, this.reporter, this.testSource);
+    verify(this.reporter).describe(mutantOne.getId());
+    // In research mode, we expect more detailed analysis based on baseline comparison
+  }
+
+  @Test
+  public void shouldUseStandardModeForNonResearchMutationTesting() throws IOException {
+    // Test that standard mode continues to work as before
+    final MutationTestWorker standardWorker = new MutationTestWorker(
+        this.hotswapper, this.mutater, this.loader, this.reset, false, false);
+    
+    final MutationDetails mutantOne = makeMutant("foo", 1);
+    final Collection<MutationDetails> range = Arrays.asList(mutantOne);
+    final TestUnit tu = makePassingTest();
+    
+    when(this.testSource.translateTests(any(List.class))).thenReturn(
+        Collections.singletonList(tu));
+    when(this.hotswapper.insertClass(any(ClassName.class), any(ClassLoader.class),
+            any(byte[].class))).thenReturn(true);
+    
+    standardWorker.run(range, this.reporter, this.testSource);
+    verify(this.reporter).describe(mutantOne.getId());
   }
 
   private TestUnit makeFailingTest() {

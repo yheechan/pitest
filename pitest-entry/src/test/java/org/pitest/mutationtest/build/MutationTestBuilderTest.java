@@ -16,6 +16,7 @@ import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.pitest.classinfo.ClassName;
+import org.pitest.classpath.CodeSource;
 import org.pitest.mutationtest.config.ExecutionMode;
 import org.pitest.mutationtest.engine.MutationDetails;
 import org.pitest.mutationtest.incremental.NullHistory;
@@ -29,6 +30,9 @@ public class MutationTestBuilderTest {
 
   @Mock
   private WorkerFactory       wf;
+
+  @Mock
+  private CodeSource          codeSource;
 
   @Before
   public void setUp() {
@@ -93,7 +97,7 @@ public class MutationTestBuilderTest {
 
   private void makeTesteeWithUnitSizeOf(int unitSize) {
     this.testee = new MutationTestBuilder(ExecutionMode.NORMAL, this.wf, new NullHistory(),
-        this.source, new DefaultGrouper(unitSize));
+        this.source, new DefaultGrouper(unitSize), this.codeSource);
   }
 
   public static MutationDetails createDetails(String clazz) {

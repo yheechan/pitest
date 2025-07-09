@@ -15,6 +15,7 @@
 package org.pitest.mutationtest.build;
 
 import org.pitest.classinfo.ClassName;
+import org.pitest.classpath.CodeSource;
 import org.pitest.mutationtest.History;
 import org.pitest.mutationtest.DetectionStatus;
 import org.pitest.mutationtest.MutationResult;
@@ -37,18 +38,21 @@ public class MutationTestBuilder {
   private final History analyser;
   private final WorkerFactory    workerFactory;
   private final MutationGrouper  grouper;
+  private final CodeSource       codeSource;
 
   public MutationTestBuilder(ExecutionMode mode,
                              WorkerFactory workerFactory,
                              History analyser,
                              MutationSource mutationSource,
-                             MutationGrouper grouper) {
+                             MutationGrouper grouper,
+                             CodeSource codeSource) {
 
     this.mode = mode;
     this.mutationSource = mutationSource;
     this.analyser = analyser;
     this.workerFactory = workerFactory;
     this.grouper = grouper;
+    this.codeSource = codeSource;
   }
 
   public List<MutationAnalysisUnit> createMutationTestUnits(
@@ -117,7 +121,7 @@ public class MutationTestBuilder {
     if (mode == ExecutionMode.DRY_RUN) {
       return new DryRunUnit(needAnalysis);
     }
-    return new MutationTestUnit(needAnalysis, this.workerFactory);
+    return new MutationTestUnit(needAnalysis, this.workerFactory, this.codeSource);
   }
 
 }

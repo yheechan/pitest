@@ -28,6 +28,7 @@ public class WorkerFactory {
   private final TimeoutLengthStrategy timeoutStrategy;
   private final Verbosity             verbosity;
   private final boolean               fullMutationMatrix;
+  private final boolean               fullMatrixResearchMode;
   private final MutationConfig        config;
   private final EngineArguments       args;
 
@@ -38,11 +39,13 @@ public class WorkerFactory {
       final TimeoutLengthStrategy timeoutStrategy,
       final Verbosity verbosity,
       final boolean fullMutationMatrix,
+      final boolean fullMatrixResearchMode,
       final String classPath) {
     this.pitConfig = pitConfig;
     this.timeoutStrategy = timeoutStrategy;
     this.verbosity = verbosity;
     this.fullMutationMatrix = fullMutationMatrix;
+    this.fullMatrixResearchMode = fullMatrixResearchMode;
     this.classPath = classPath;
     this.baseDir = baseDir;
     this.config = mutationConfig;
@@ -54,7 +57,7 @@ public class WorkerFactory {
       final Collection<ClassName> testClasses) {
     final MinionArguments fileArgs = new MinionArguments(remainingMutations,
         testClasses, this.config.getEngine().getName(), this.args, this.timeoutStrategy,
-        Log.verbosity(), this.fullMutationMatrix, this.pitConfig);
+        Log.verbosity(), this.fullMutationMatrix, this.fullMatrixResearchMode, this.pitConfig);
 
     final ProcessArgs args = ProcessArgs.withClassPath(this.classPath)
         .andLaunchOptions(this.config.getLaunchOptions())
@@ -82,4 +85,7 @@ public class WorkerFactory {
     }
   }
 
+  public boolean isFullMatrixResearchMode() {
+    return this.fullMatrixResearchMode;
+  }
 }

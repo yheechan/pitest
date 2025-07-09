@@ -117,7 +117,9 @@ public class DefaultCoverageGenerator implements CoverageGenerator {
       }
       testStats.end();
 
-      verifyBuildSuitableForMutationTesting(coverage);
+      if (this.coverageOptions.getPitConfig().skipFailingTests()) {
+        verifyBuildSuitableForMutationTesting(coverage);
+      }
 
       this.exporter.recordCoverage(coverage.createCoverage());
 

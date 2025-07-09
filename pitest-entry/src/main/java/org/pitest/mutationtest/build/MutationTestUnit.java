@@ -21,6 +21,7 @@ import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 import org.pitest.classinfo.ClassName;
+import org.pitest.classpath.CodeSource;
 import org.pitest.coverage.TestInfo;
 import org.pitest.mutationtest.DetectionStatus;
 import org.pitest.mutationtest.MutationMetaData;
@@ -36,11 +37,13 @@ public class MutationTestUnit implements MutationAnalysisUnit {
 
   private final Collection<MutationDetails> availableMutations;
   private final WorkerFactory               workerFactory;
+  private final CodeSource                  codeSource;
 
 
-  public MutationTestUnit(Collection<MutationDetails> availableMutations, WorkerFactory workerFactory) {
+  public MutationTestUnit(Collection<MutationDetails> availableMutations, WorkerFactory workerFactory, CodeSource codeSource) {
     this.availableMutations = availableMutations;
     this.workerFactory = workerFactory;
+    this.codeSource = codeSource;
   }
 
   @Override
@@ -94,6 +97,12 @@ public class MutationTestUnit implements MutationAnalysisUnit {
   }
 
   private Set<ClassName> testClassesFor(Collection<MutationDetails> remainingMutations) {
+    // In research mode, use all available test classes to ensure complete coverage
+    if (this.workerFactory.isFullMatrixResearchMode()) {
+      return this.codeSource.getTestClassNames();
+    }
+    
+    // Default behavior: only use covering tests
     return remainingMutations.stream()
             .flatMap(m -> m.getTestsInOrder().stream().map(TestInfo.toDefiningClassName()))
             .collect(Collectors.toSet());
