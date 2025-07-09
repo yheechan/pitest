@@ -105,11 +105,27 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
 
         Boolean baselinePassed = baselineResults.get(testName);
         if (baselinePassed == null) {
+            // Debug: Test not found in baseline results
+            System.err.println("DEBUG: Test '" + testName + "' not found in baseline results. Available tests: " + baselineResults.keySet());
             return "UNKNOWN";
         }
 
         boolean currentPassed = survivingTests.contains(testName);
         boolean currentFailed = killingTests.contains(testName);
+
+        // Check if this is a NON_VIABLE mutation (no tests were executed)
+        boolean noTestsRun = !currentPassed && !currentFailed;
+        
+        if (noTestsRun) {
+            // For NON_VIABLE mutations, we assume the test would have the same result as baseline
+            // since the mutation couldn't be executed properly
+            System.err.println("DEBUG: NON_VIABLE mutation for test '" + testName + "', baseline passed: " + baselinePassed);
+            if (baselinePassed) {
+                return "P2P"; // Test passed in baseline, would pass on mutation (no change)
+            } else {
+                return "F2F"; // Test failed in baseline, would fail on mutation (no change)
+            }
+        }
 
         if (baselinePassed && currentFailed) {
             // Test passed in baseline but failed on mutation (test result changed)
@@ -124,9 +140,6 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         } else if (!baselinePassed && currentPassed) {
             // Test failed in baseline and survived the mutation (no change)
             // This means the test failed in both baseline and mutation
-            return "F2F";
-        } else if (!baselinePassed && !currentFailed && !currentPassed) {
-            // Test failed in baseline and wasn't even executed or recorded for this mutation
             return "F2F";
         } else {
             return "UNKNOWN";
