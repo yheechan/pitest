@@ -24,7 +24,7 @@ org.pitest.mutationtest.engine.gregor.mutators.experimental.RemoveIncrementsMuta
 org.pitest.mutationtest.engine.gregor.mutators.experimental.SwitchMutator
 org.pitest.mutationtest.engine.gregor.mutators.experimental.BigDecimalMutator
 org.pitest.mutationtest.engine.gregor.mutators.experimental.BigIntegerMutator
-# New mutators from PIT documentation
+# New mutators from PIT documentation - Comprehensive sub-mutators
 org.pitest.mutationtest.engine.gregor.mutators.experimental.ArithmeticOperatorReplacementMutator
 org.pitest.mutationtest.engine.gregor.mutators.experimental.ArithmeticOperatorDeletionMutator
 org.pitest.mutationtest.engine.gregor.mutators.experimental.UnaryOperatorInsertionMutator
