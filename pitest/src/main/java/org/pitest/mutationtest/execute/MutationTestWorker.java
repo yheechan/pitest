@@ -33,6 +33,11 @@ import org.pitest.testapi.execute.containers.UnContainer;
 import org.pitest.util.Log;
 
 import java.io.IOException;
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -61,6 +66,7 @@ public class MutationTestWorker {
   private final HotSwap                                     hotswap;
   private final boolean                                     fullMutationMatrix;
   private final boolean                                     fullMatrixResearchMode;
+  private final String                                      reportDir;
 
   private final ResetEnvironment                            reset;
 
@@ -73,13 +79,15 @@ public class MutationTestWorker {
                             ClassLoader loader,
                             ResetEnvironment reset,
                             boolean fullMutationMatrix,
-                            boolean fullMatrixResearchMode) {
+                            boolean fullMatrixResearchMode,
+                            String reportDir) {
     this.loader = loader;
     this.reset = reset;
     this.mutater = mutater;
     this.hotswap = hotswap;
     this.fullMutationMatrix = fullMutationMatrix;
     this.fullMatrixResearchMode = fullMatrixResearchMode;
+    this.reportDir = reportDir;
   }
 
   protected void run(final Collection<MutationDetails> range, final Reporter r,
@@ -114,6 +122,9 @@ public class MutationTestWorker {
 
     final MutationIdentifier mutationId = mutationDetails.getId();
     final Mutant mutatedClass = this.mutater.getMutation(mutationId);
+
+    // Save mutated bytecode for research mode analysis
+    saveMutatedBytecode(mutationId, mutatedClass);
 
     reset.resetFor(mutatedClass);
 
@@ -305,6 +316,81 @@ public class MutationTestWorker {
       }
     } catch (final Exception ex) {
       throw translateCheckedException(ex);
+    }
+  }
+
+  /**
+   * Save the mutated bytecode to disk for analysis purposes.
+   * Only used in fullMatrixResearchMode when reportDir is available.
+   * Creates a directory structure: reportDir/mutants/ClassName/MethodName/
+   */
+  private void saveMutatedBytecode(final MutationIdentifier mutationId, final Mutant mutatedClass) {
+    if (!this.fullMatrixResearchMode || this.reportDir == null || this.reportDir.isEmpty()) {
+      return;
+    }
+    
+    try {
+      // Create structured directory under reportDir/mutants/
+      final String className = mutationId.getClassName().asJavaName();
+      final String methodName = mutatedClass.getDetails().getMethod();
+      final int lineNumber = mutatedClass.getDetails().getLineNumber();
+      final int mutationIndex = mutatedClass.getDetails().getFirstIndex();
+      final String mutator = mutatedClass.getDetails().getMutator();
+      
+      // Create directory structure: mutants/ClassName/MethodName/
+      final Path classDir = Paths.get(this.reportDir, "mutants", className.replace('.', File.separatorChar), methodName);
+      Files.createDirectories(classDir);
+      
+      // Create a descriptive filename
+      // Format: Line_LineNumber_Index_MutationIndex_Mutator.class
+      final String filename = String.format("Line_%d_Index_%d_%s.class", 
+          lineNumber, mutationIndex, mutator.replace(' ', '_').replace('/', '_'));
+      
+      final Path bytecodeFile = classDir.resolve(filename);
+      
+      // Write the mutated bytecode
+      Files.write(bytecodeFile, mutatedClass.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+      
+      // Also create a metadata file with detailed information about this mutant
+      final String metadataFilename = filename.replace(".class", ".info");
+      final Path metadataFile = classDir.resolve(metadataFilename);
+      final String metadata = String.format(
+          "Mutation ID: %s%n"
+          + "Class: %s%n"
+          + "Method: %s%n"
+          + "Line Number: %d%n"
+          + "Mutation Index: %d%n"
+          + "Mutator: %s%n"
+          + "Description: %s%n"
+          + "Bytecode Size: %d bytes%n"
+          + "Bytecode File: %s%n"
+          + "%n"
+          + "To decompile this bytecode to Java source, you can use:%n"
+          + "  javap -c -p %s%n"
+          + "  Or use any Java decompiler like CFR, Fernflower, or JD-GUI%n",
+          mutationId.toString(),
+          className,
+          methodName,
+          lineNumber,
+          mutationIndex,
+          mutator,
+          mutatedClass.getDetails().getDescription(),
+          mutatedClass.getBytes().length,
+          filename,
+          filename
+      );
+      Files.write(metadataFile, metadata.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+      
+      if (DEBUG) {
+        LOG.fine("Saved mutated bytecode for " + mutationId + " to " + bytecodeFile);
+        LOG.fine("Saved mutation metadata to " + metadataFile);
+      }
+      
+    } catch (final Exception ex) {
+      LOG.warning("Failed to save mutated bytecode for " + mutationId + ": " + ex.getMessage());
+      if (DEBUG) {
+        ex.printStackTrace();
+      }
     }
   }
 
