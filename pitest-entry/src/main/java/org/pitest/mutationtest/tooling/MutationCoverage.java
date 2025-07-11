@@ -175,13 +175,17 @@ public class MutationCoverage {
     CoverageDatabase coverageData = coverage().calculateCoverage(history.limitTests(unfilteredMutants));
     history.processCoverage(coverageData);
 
+    
     LOG.fine("Used memory after coverage calculation "
-        + ((runtime.totalMemory() - runtime.freeMemory()) / MB) + " mb");
+    + ((runtime.totalMemory() - runtime.freeMemory()) / MB) + " mb");
     LOG.fine("Free Memory after coverage calculation "
-        + (runtime.freeMemory() / MB) + " mb");
-
+    + (runtime.freeMemory() / MB) + " mb");
+    
     // Capture baseline results in main process for fullMatrixResearchMode
     if (this.data.isFullMatrixResearchMode()) {
+      // Capture test case results from coverage data (leverages already executed tests)
+      captureTestCaseResultsFromCoverageData(coverageData);
+
       captureBaselineResultsInMainProcess(coverageData);
       // Save original bytecode once in main process for all classes
       saveOriginalBytecodeInMainProcess();
@@ -737,4 +741,172 @@ public class MutationCoverage {
       LOG.fine("Failed to save original bytecode for " + classNameStr + ": " + ex.getMessage());
     }
   }
+  
+  /**
+   * Extract test case results from coverage data and save to CSV file.
+   * This method extracts test execution times and outcomes that were already
+   * recorded during coverage calculation, avoiding redundant test execution.
+   */
+  private void captureTestCaseResultsFromCoverageData(CoverageDatabase coverageData) {
+    String reportDir = this.data.getReportDir();
+    if (reportDir == null || reportDir.isEmpty()) {
+      LOG.fine("No report directory configured, skipping test case results capture");
+      return;
+    }
+    
+    try {
+      LOG.info("Extracting test case results from coverage data");
+      
+      // Create baselineResults directory
+      java.nio.file.Path baselineDir = java.nio.file.Paths.get(reportDir, "baselineResults");
+      java.nio.file.Files.createDirectories(baselineDir);
+      
+      // Create CSV file for test case results
+      java.nio.file.Path csvFile = baselineDir.resolve("tcs_results.csv");
+      
+      if (!(coverageData instanceof CoverageData)) {
+        LOG.warning("Coverage data is not of expected type CoverageData, creating empty CSV file");
+        writeEmptyTestResultsCSV(csvFile);
+        return;
+      }
+      
+      CoverageData cd = (CoverageData) coverageData;
+      
+      // Extract test results directly from coverage data
+      Set<TestInfo> allTests = new HashSet<>();
+      for (BlockCoverage blockCov : cd.createCoverage()) {
+        Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockCov.getBlock());
+        allTests.addAll(testsForBlock);
+      }
+      
+      if (allTests.isEmpty()) {
+        LOG.warning("No test results found in coverage data - creating empty CSV file");
+        writeEmptyTestResultsCSV(csvFile);
+        return;
+      }
+      
+      // Get failing test names from coverage data
+      Set<String> failingTestNames = cd.getFailingTestDescriptions().stream()
+          .map(org.pitest.testapi.Description::getQualifiedName)
+          .collect(java.util.stream.Collectors.toSet());
+      
+      LOG.info("Found " + allTests.size() + " unique tests in coverage data, " + failingTestNames.size() + " failing");
+      
+      // Write results directly to CSV
+      writeTestResultsToCSV(csvFile, allTests, failingTestNames, cd);
+      
+      LOG.info("Successfully captured " + allTests.size() + " test case results from coverage data to: " + csvFile);
+      
+    } catch (Exception e) {
+      LOG.severe("Failed to capture test case results from coverage data: " + e.getMessage());
+      e.printStackTrace();
+    }
+  }
+  
+  /**
+   * Write test results to CSV file using coverage data and detailed test results when available.
+   */
+  private void writeTestResultsToCSV(java.nio.file.Path csvFile, Set<TestInfo> allTests, Set<String> failingTestNames, CoverageData cd) throws java.io.IOException {
+    try (java.io.PrintWriter writer = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(csvFile))) {
+      // Write CSV header
+      writer.println("test_name,result,execution_time_ms,exception_type,exception_message,stack_trace");
+      
+      // Sort tests by name for consistent output
+      List<TestInfo> sortedTests = allTests.stream()
+          .sorted((t1, t2) -> t1.getName().compareTo(t2.getName()))
+          .collect(java.util.stream.Collectors.toList());
+      
+      LOG.info("Writing test results to CSV with exception details from coverage data");
+      
+      // Write test results
+      for (TestInfo testInfo : sortedTests) {
+        String testName = testInfo.getName();
+        boolean passed = !failingTestNames.contains(testName);
+        double durationMillis = testInfo.getTime(); // TestInfo.getTime() returns execution time in milliseconds
+        String result = passed ? "PASS" : "FAIL";
+        
+        String exceptionType = "";
+        String exceptionMessage = "";
+        String stackTrace = "";
+        
+        // Get exception details from stored CoverageResult objects
+        if (!passed) {
+          // Find the corresponding CoverageResult for this test
+          List<org.pitest.coverage.CoverageResult> coverageResults = cd.getAllCoverageResults();
+          for (org.pitest.coverage.CoverageResult cr : coverageResults) {
+            if (cr.getTestUnitDescription().getQualifiedName().equals(testName)) {
+              if (cr.getExceptionType() != null && !cr.getExceptionType().isEmpty()) {
+                exceptionType = cr.getExceptionType();
+              } else {
+                exceptionType = "TestFailure";
+              }
+              
+              if (cr.getExceptionMessage() != null && !cr.getExceptionMessage().isEmpty()) {
+                exceptionMessage = cr.getExceptionMessage();
+              } else {
+                exceptionMessage = "Test failed during baseline execution";
+              }
+              
+              if (cr.getStackTrace() != null && !cr.getStackTrace().isEmpty()) {
+                stackTrace = cr.getStackTrace();
+              } else {
+                stackTrace = "No stack trace available";
+              }
+              break;
+            }
+          }
+          
+          // Fallback if no CoverageResult found
+          if (exceptionType.isEmpty()) {
+            exceptionType = "TestFailure";
+            exceptionMessage = "Test failed during baseline execution";
+            stackTrace = "No stack trace available";
+          }
+        }
+        
+        writer.printf("%s,%s,%.2f,%s,%s,%s%n", 
+            escapeCsvValue(testName),
+            result,
+            durationMillis,
+            escapeCsvValue(exceptionType),
+            escapeCsvValue(exceptionMessage),
+            escapeCsvValue(stackTrace));
+        
+        if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+          LOG.fine("Extracted test result: " + testName + ": " + result + " (" + String.format("%.2f", durationMillis) + "ms)");
+        }
+      }
+    }
+  }
+  
+  /**
+   * Escape CSV values to handle commas, quotes, and newlines.
+   */
+  private String escapeCsvValue(String value) {
+    if (value == null || value.isEmpty()) {
+      return "";
+    }
+    
+    // If value contains comma, quote, or newline, wrap in quotes and escape internal quotes
+    if (value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r")) {
+      return "\"" + value.replace("\"", "\"\"") + "\"";
+    }
+    
+    return value;
+  }
+  
+  /**
+   * Write an empty CSV file with proper headers when no tests are found.
+   */
+  private void writeEmptyTestResultsCSV(java.nio.file.Path csvFile) throws java.io.IOException {
+    try (java.io.PrintWriter writer = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(csvFile, 
+            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING))) {
+      // Write CSV header
+      writer.println("test_name,result,execution_time_ms,exception_type,exception_message,stack_trace");
+      // No data rows since no tests were found
+    }
+    LOG.info("Created empty test results CSV file: " + csvFile);
+  }
+  
+
 }

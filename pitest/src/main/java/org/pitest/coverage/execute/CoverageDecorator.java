@@ -20,9 +20,9 @@ import java.util.logging.Logger;
 
 import org.pitest.coverage.CoverageReceiver;
 import org.pitest.extension.common.TestUnitDecorator;
+import org.pitest.testapi.Description;
 import org.pitest.testapi.ResultCollector;
 import org.pitest.testapi.TestUnit;
-import org.pitest.testapi.execute.ExitingResultCollector;
 import org.pitest.util.Log;
 
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
@@ -46,8 +46,7 @@ public class CoverageDecorator extends TestUnitDecorator {
     final int threadsBeforeTest = this.threads.getThreadCount();
 
     final long t0 = System.nanoTime();
-    final ExitingResultCollector wrappedCollector = new ExitingResultCollector(
-        rc);
+    final ExceptionCapturingResultCollector wrappedCollector = new ExceptionCapturingResultCollector(rc);
     this.child().execute(wrappedCollector);
 
     final int executionTime = (int) NANOSECONDS.toMillis(System.nanoTime() - t0);
@@ -59,9 +58,86 @@ public class CoverageDecorator extends TestUnitDecorator {
           + threadsBeforeTest + ")");
     }
 
-    this.invokeQueue.recordTestOutcome(child().getDescription(),
-        !wrappedCollector.shouldExit(), executionTime);
+    // Get exception details from the collector
+    boolean testPassed = !wrappedCollector.shouldExit();
+    Throwable exception = wrappedCollector.getException();
+    String exceptionType = "";
+    String exceptionMessage = "";
+    String stackTrace = "";
+    
+    if (!testPassed && exception != null) {
+        exceptionType = exception.getClass().getSimpleName();
+        exceptionMessage = exception.getMessage() != null ? exception.getMessage() : "";
+        stackTrace = getStackTraceString(exception);
+    }
 
+    // Send result with exception information
+    this.invokeQueue.recordTestOutcome(child().getDescription(),
+        testPassed, executionTime, exceptionType, exceptionMessage, stackTrace);
+  }
+
+  private String getStackTraceString(Throwable throwable) {
+    if (throwable == null) {
+      return "";
+    }
+    
+    java.io.StringWriter sw = new java.io.StringWriter();
+    java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+    throwable.printStackTrace(pw);
+    pw.close();
+    
+    // Truncate very long stack traces to avoid communication issues
+    String fullTrace = sw.toString();
+    if (fullTrace.length() > 2000) {
+      return fullTrace.substring(0, 2000) + "... [truncated]";
+    }
+    return fullTrace;
+  }
+
+  /**
+   * Result collector that captures exception details for coverage reporting
+   */
+  private static class ExceptionCapturingResultCollector implements ResultCollector {
+    private final ResultCollector child;
+    private final java.util.concurrent.atomic.AtomicBoolean hadFailure = new java.util.concurrent.atomic.AtomicBoolean(false);
+    private volatile Throwable exception;
+
+    ExceptionCapturingResultCollector(final ResultCollector child) {
+      this.child = child;
+    }
+
+    @Override
+    public void notifySkipped(final Description description) {
+      this.child.notifySkipped(description);
+    }
+
+    @Override
+    public void notifyStart(final Description description) {
+      this.child.notifyStart(description);
+    }
+
+    @Override
+    public boolean shouldExit() {
+      return this.hadFailure.get();
+    }
+
+    @Override
+    public void notifyEnd(final Description description, final Throwable t) {
+      this.child.notifyEnd(description, t);
+      if (t != null) {
+        this.hadFailure.set(true);
+        this.exception = t;
+      }
+    }
+
+    @Override
+    public void notifyEnd(final Description description) {
+      this.child.notifyEnd(description);
+    }
+
+    public Throwable getException() {
+      return this.exception;
+    }
   }
 
 }

@@ -200,6 +200,10 @@ public class DefaultCoverageGenerator implements CoverageGenerator {
         if (cr.isGreenTest() || !coverageOptions.getPitConfig().skipFailingTests()) {
           coverage.calculateClassCoverage(cr);
         }
+        
+        // Store coverage result with exception details for later access
+        coverage.storeCoverageResult(cr);
+        
         if (DefaultCoverageGenerator.this.verbosity.showSpinner()) {
           System.out.printf("%s", this.spinner[this.i % this.spinner.length]);
         }

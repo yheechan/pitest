@@ -46,6 +46,7 @@ public class CoverageData implements CoverageDatabase {
   private final int testCount;
 
   private final List<Description> failingTestDescriptions = new ArrayList<>();
+  private final List<CoverageResult> allCoverageResults = new ArrayList<>();
 
   public CoverageData(CodeSource code, LineMap lm, int testCount) {
     this.code = code;
@@ -178,6 +179,14 @@ public class CoverageData implements CoverageDatabase {
 
   private void recordTestFailure(final Description testDescription) {
     this.failingTestDescriptions.add(testDescription);
+  }
+
+  public void storeCoverageResult(final CoverageResult coverageResult) {
+    this.allCoverageResults.add(coverageResult);
+  }
+
+  public List<CoverageResult> getAllCoverageResults() {
+    return Collections.unmodifiableList(this.allCoverageResults);
   }
 
 }

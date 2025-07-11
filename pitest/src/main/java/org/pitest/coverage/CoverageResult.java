@@ -10,14 +10,27 @@ public class CoverageResult {
   private final int                       executionTime;
   private final Collection<BlockLocation> visitedBlocks;
   private final boolean                   greenSuite;
+  private final String                    exceptionType;
+  private final String                    exceptionMessage;
+  private final String                    stackTrace;
 
   public CoverageResult(final Description testUnitDescription,
       final int executionTime, final boolean greenSuite,
       final Collection<BlockLocation> visitedBlocks) {
+    this(testUnitDescription, executionTime, greenSuite, visitedBlocks, "", "", "");
+  }
+
+  public CoverageResult(final Description testUnitDescription,
+      final int executionTime, final boolean greenSuite,
+      final Collection<BlockLocation> visitedBlocks,
+      final String exceptionType, final String exceptionMessage, final String stackTrace) {
     this.testUnitDescription = testUnitDescription;
     this.executionTime = executionTime;
     this.visitedBlocks = visitedBlocks;
     this.greenSuite = greenSuite;
+    this.exceptionType = exceptionType != null ? exceptionType : "";
+    this.exceptionMessage = exceptionMessage != null ? exceptionMessage : "";
+    this.stackTrace = stackTrace != null ? stackTrace : "";
   }
 
   public Description getTestUnitDescription() {
@@ -36,6 +49,18 @@ public class CoverageResult {
     return this.greenSuite;
   }
 
+  public String getExceptionType() {
+    return this.exceptionType;
+  }
+
+  public String getExceptionMessage() {
+    return this.exceptionMessage;
+  }
+
+  public String getStackTrace() {
+    return this.stackTrace;
+  }
+
   public int getNumberOfCoveredBlocks() {
     return this.visitedBlocks.size();
   }
@@ -44,7 +69,10 @@ public class CoverageResult {
   public String toString() {
     return "CoverageResult [testUnitDescription=" + this.testUnitDescription
         + ", executionTime=" + this.executionTime + ", coverage="
-        + this.visitedBlocks + ", greenSuite=" + this.greenSuite + "]";
+        + this.visitedBlocks + ", greenSuite=" + this.greenSuite 
+        + ", exceptionType=" + this.exceptionType
+        + ", exceptionMessage=" + this.exceptionMessage
+        + ", stackTrace=" + (this.stackTrace.length() > 100 ? this.stackTrace.substring(0, 100) + "..." : this.stackTrace) + "]";
   }
 
 }

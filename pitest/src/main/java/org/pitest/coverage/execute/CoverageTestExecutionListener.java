@@ -74,7 +74,38 @@ public class CoverageTestExecutionListener implements TestUnitExecutionListener 
         }
         threadsBeforeTest.remove(description);
 
-        invokeQueue.recordTestOutcome(description, passed, executionTime);
+        // Extract exception details from the actual error if available
+        String exceptionType = "None";
+        String exceptionMessage = "None";
+        String stackTrace = "None";
+        
+        if (!passed && maybeError != null) {
+            exceptionType = maybeError.getClass().getSimpleName();
+            exceptionMessage = maybeError.getMessage() != null ? maybeError.getMessage() : "";
+            stackTrace = getStackTraceString(maybeError);
+        }
+        
+        // Send result with exception information
+        invokeQueue.recordTestOutcome(description, passed, executionTime,
+            exceptionType, exceptionMessage, stackTrace);
+    }
+
+    private String getStackTraceString(Throwable throwable) {
+        if (throwable == null) {
+            return "";
+        }
+        
+        java.io.StringWriter sw = new java.io.StringWriter();
+        java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+        throwable.printStackTrace(pw);
+        pw.close();
+        
+        // Truncate very long stack traces to avoid communication issues
+        String fullTrace = sw.toString();
+        if (fullTrace.length() > 2000) {
+            return fullTrace.substring(0, 2000) + "... [truncated]";
+        }
+        return fullTrace;
     }
 
 }
