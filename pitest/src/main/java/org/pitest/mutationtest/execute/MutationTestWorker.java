@@ -73,9 +73,6 @@ public class MutationTestWorker {
   // Baseline results captured once for all mutations in research mode
   private Map<String, Boolean> baselineResults = null;
 
-  // Track classes for which we've already saved the original bytecode
-  private final java.util.Set<String> savedOriginalClasses = new java.util.HashSet<>();
-
 
   public MutationTestWorker(HotSwap hotswap,
                             Mutater mutater,
@@ -344,8 +341,7 @@ public class MutationTestWorker {
       final Path classDir = Paths.get(this.reportDir, "mutants", className.replace('.', File.separatorChar), methodName);
       Files.createDirectories(classDir);
       
-      // Save original (baseline) bytecode if not already saved for this class
-      saveOriginalBytecode(mutationId.getClassName());
+      // Note: Original bytecode is now saved once in main process for efficiency
       
       // Create a descriptive filename
       // Format: Line_LineNumber_Index_MutationIndex_Mutator.class
@@ -370,7 +366,7 @@ public class MutationTestWorker {
           + "Description: %s%n"
           + "Bytecode Size: %d bytes%n"
           + "Bytecode File: %s%n"
-          + "Original Class File: ORIGINAL_%s.class%n"
+          + "Original Class File: ORIGINAL_%s.class (saved by main process)%n"
           + "%n"
           + "To compare with original:%n"
           + "  diff <(javap -c %s) <(javap -c ORIGINAL_%s.class)%n"
@@ -403,137 +399,6 @@ public class MutationTestWorker {
       LOG.warning("Failed to save mutated bytecode for " + mutationId + ": " + ex.getMessage());
       if (DEBUG) {
         ex.printStackTrace();
-      }
-    }
-  }
-
-  /**
-   * Save the original (baseline) bytecode of a class before mutation.
-   * This allows for comparison between original and mutated versions.
-   * Only saves once per class to avoid duplication.
-   * Saves the original .class file in the class's actual package directory structure.
-   */
-  private void saveOriginalBytecode(final org.pitest.classinfo.ClassName className) {
-    final String classNameStr = className.asJavaName();
-    
-    // Check if we've already saved the original for this class
-    if (this.savedOriginalClasses.contains(classNameStr)) {
-      return;
-    }
-    
-    try {
-      // Get the original bytecode from the class loader
-      final String classInternalName = className.asInternalName();
-      final String classResourcePath = classInternalName + ".class";
-      
-      // Try to load the original class bytecode
-      byte[] originalBytecode = null;
-      
-      // Try multiple ways to get the original bytecode
-      try (java.io.InputStream classStream = this.loader.getResourceAsStream(classResourcePath)) {
-        if (classStream != null) {
-          originalBytecode = classStream.readAllBytes();
-        }
-      } catch (final Exception ex) {
-        if (DEBUG) {
-          LOG.fine("Failed to load original bytecode via class loader for " + classNameStr + ": " + ex.getMessage());
-        }
-      }
-      
-      // If we couldn't get it from the class loader, try the system class loader
-      if (originalBytecode == null) {
-        try (java.io.InputStream classStream = ClassLoader.getSystemResourceAsStream(classResourcePath)) {
-          if (classStream != null) {
-            originalBytecode = classStream.readAllBytes();
-          }
-        } catch (final Exception ex) {
-          if (DEBUG) {
-            LOG.fine("Failed to load original bytecode via system class loader for " + classNameStr + ": " + ex.getMessage());
-          }
-        }
-      }
-      
-      // If we couldn't get it from class loaders, try the thread context class loader
-      if (originalBytecode == null) {
-        final ClassLoader contextLoader = Thread.currentThread().getContextClassLoader();
-        if (contextLoader != null) {
-          try (java.io.InputStream classStream = contextLoader.getResourceAsStream(classResourcePath)) {
-            if (classStream != null) {
-              originalBytecode = classStream.readAllBytes();
-            }
-          } catch (final Exception ex) {
-            if (DEBUG) {
-              LOG.fine("Failed to load original bytecode via context class loader for " + classNameStr + ": " + ex.getMessage());
-            }
-          }
-        }
-      }
-      
-      if (originalBytecode != null) {
-        // Create the full package directory structure for the original class
-        final String packagePath = classNameStr.contains(".") ? classNameStr.substring(0, classNameStr.lastIndexOf('.')).replace('.', File.separatorChar) : "";
-        final String simpleClassName = classNameStr.substring(classNameStr.lastIndexOf('.') + 1);
-        
-        // Save original bytecode in the main report directory with package structure
-        final Path originalClassDir = packagePath.isEmpty()
-            ? Paths.get(this.reportDir, "original")
-            : Paths.get(this.reportDir, "original", packagePath);
-        Files.createDirectories(originalClassDir);
-        
-        final String originalFilename = "ORIGINAL_" + simpleClassName + ".class";
-        final Path originalBytecodeFile = originalClassDir.resolve(originalFilename);
-        
-        Files.write(originalBytecodeFile, originalBytecode, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        
-        // Create a metadata file for the original class
-        final String originalMetadataFilename = "ORIGINAL_" + simpleClassName + ".info";
-        final Path originalMetadataFile = originalClassDir.resolve(originalMetadataFilename);
-        final String originalMetadata = String.format(
-            "Original Class: %s%n"
-            + "Bytecode Size: %d bytes%n"
-            + "Saved From: %s%n"
-            + "Package Path: %s%n"
-            + "Saved To: %s%n"
-            + "Purpose: Baseline for mutation comparison%n"
-            + "%n"
-            + "This is the original (unmutated) version of the class.%n"
-            + "Compare with mutated versions to see the exact changes made.%n"
-            + "%n"
-            + "To decompile this original bytecode:%n"
-            + "  javap -c -p %s%n"
-            + "  Or use any Java decompiler like CFR, Fernflower, or JD-GUI%n"
-            + "%n"
-            + "To compare original vs mutated (example):%n"
-            + "  diff <(javap -c %s) <(javap -c /path/to/mutant/Line_X_Index_Y_Mutator.class)%n"
-            + "%n"
-            + "Original class saved in package structure: %s%n",
-            classNameStr,
-            originalBytecode.length,
-            classResourcePath,
-            packagePath.isEmpty() ? "(default package)" : packagePath,
-            originalBytecodeFile.toString(),
-            originalFilename,
-            originalFilename,
-            originalClassDir.toString()
-        );
-        Files.write(originalMetadataFile, originalMetadata.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        
-        // Mark this class as saved
-        this.savedOriginalClasses.add(classNameStr);
-        
-        if (DEBUG) {
-          LOG.fine("Saved original bytecode for " + classNameStr + " to " + originalBytecodeFile);
-          LOG.fine("Saved original metadata to " + originalMetadataFile);
-        }
-      } else {
-        if (DEBUG) {
-          LOG.fine("Could not find original bytecode for class " + classNameStr);
-        }
-      }
-      
-    } catch (final Exception ex) {
-      if (DEBUG) {
-        LOG.fine("Failed to save original bytecode for " + classNameStr + ": " + ex.getMessage());
       }
     }
   }

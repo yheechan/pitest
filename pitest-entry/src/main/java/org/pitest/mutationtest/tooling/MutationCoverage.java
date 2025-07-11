@@ -183,6 +183,8 @@ public class MutationCoverage {
     // Capture baseline results in main process for fullMatrixResearchMode
     if (this.data.isFullMatrixResearchMode()) {
       captureBaselineResultsInMainProcess(coverageData);
+      // Save original bytecode once in main process for all classes
+      saveOriginalBytecodeInMainProcess();
     }
 
     this.timings.registerStart(Timings.Stage.BUILD_MUTATION_TESTS);
@@ -607,5 +609,132 @@ public class MutationCoverage {
       }
       return clSource.getBytes(clazz);
     };
+  }
+
+  /**
+   * Save original bytecode for all classes under test in the main process.
+   * This is more efficient than having each worker save original bytecode independently.
+   * Only saves if reportDir is configured for research mode.
+   */
+  private void saveOriginalBytecodeInMainProcess() {
+    String reportDir = this.data.getReportDir();
+    if (reportDir == null || reportDir.isEmpty()) {
+      LOG.fine("No report directory configured, skipping original bytecode saving");
+      return;
+    }
+    
+    try {
+      LOG.info("Saving original bytecode for all classes under test in main process");
+      
+      // Get all classes under test
+      Collection<ClassName> classesUnderTest = this.code.getCodeUnderTestNames();
+      LOG.info("Found " + classesUnderTest.size() + " classes under test to save original bytecode");
+      
+      for (ClassName className : classesUnderTest) {
+        saveOriginalBytecodeForClass(className, reportDir);
+      }
+      
+      LOG.info("Completed saving original bytecode for " + classesUnderTest.size() + " classes");
+      
+    } catch (Exception e) {
+      LOG.warning("Failed to save original bytecode in main process: " + e.getMessage());
+      if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+        e.printStackTrace();
+      }
+    }
+  }
+
+  /**
+   * Save original bytecode for a single class.
+   */
+  private void saveOriginalBytecodeForClass(ClassName className, String reportDir) {
+    final String classNameStr = className.asJavaName();
+    
+    try {
+      // Get the original bytecode from the class loader
+      final String classInternalName = className.asInternalName();
+      final String classResourcePath = classInternalName + ".class";
+      
+      // Try to load the original class bytecode
+      byte[] originalBytecode = null;
+      
+      // Try multiple ways to get the original bytecode
+      ClassLoader contextLoader = Thread.currentThread().getContextClassLoader();
+      if (contextLoader != null) {
+        try (java.io.InputStream classStream = contextLoader.getResourceAsStream(classResourcePath)) {
+          if (classStream != null) {
+            originalBytecode = classStream.readAllBytes();
+          }
+        } catch (final Exception ex) {
+          // Try system class loader
+          try (java.io.InputStream classStream = ClassLoader.getSystemResourceAsStream(classResourcePath)) {
+            if (classStream != null) {
+              originalBytecode = classStream.readAllBytes();
+            }
+          } catch (final Exception ex2) {
+            LOG.fine("Could not load original bytecode for " + classNameStr + ": " + ex2.getMessage());
+          }
+        }
+      }
+      
+      if (originalBytecode != null) {
+        // Create the full package directory structure for the original class
+        final String packagePath = classNameStr.contains(".") 
+          ? classNameStr.substring(0, classNameStr.lastIndexOf('.')).replace('.', java.io.File.separatorChar) : "";
+        final String simpleClassName = classNameStr.substring(classNameStr.lastIndexOf('.') + 1);
+        
+        // Save original bytecode in the main report directory with package structure
+        final java.nio.file.Path originalClassDir = packagePath.isEmpty()
+            ? java.nio.file.Paths.get(reportDir, "original")
+            : java.nio.file.Paths.get(reportDir, "original", packagePath);
+        java.nio.file.Files.createDirectories(originalClassDir);
+        
+        final String originalFilename = "ORIGINAL_" + simpleClassName + ".class";
+        final java.nio.file.Path originalBytecodeFile = originalClassDir.resolve(originalFilename);
+        
+        java.nio.file.Files.write(originalBytecodeFile, originalBytecode, 
+            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+        
+        // Create a metadata file for the original class
+        final String originalMetadataFilename = "ORIGINAL_" + simpleClassName + ".info";
+        final java.nio.file.Path originalMetadataFile = originalClassDir.resolve(originalMetadataFilename);
+        final String originalMetadata = String.format(
+            "Original Class: %s%n"
+            + "Bytecode Size: %d bytes%n"
+            + "Saved From: %s%n"
+            + "Package Path: %s%n"
+            + "Saved To: %s%n"
+            + "Purpose: Baseline for mutation comparison%n"
+            + "Saved By: Main process (MutationCoverage)%n"
+            + "%n"
+            + "This is the original (unmutated) version of the class.%n"
+            + "Compare with mutated versions to see the exact changes made.%n"
+            + "%n"
+            + "To decompile this original bytecode:%n"
+            + "  javap -c -p %s%n"
+            + "  Or use any Java decompiler like CFR, Fernflower, or JD-GUI%n"
+            + "%n"
+            + "To compare original vs mutated (example):%n"
+            + "  diff <(javap -c %s) <(javap -c /path/to/mutant/Line_X_Index_Y_Mutator.class)%n",
+            classNameStr,
+            originalBytecode.length,
+            classResourcePath,
+            packagePath.isEmpty() ? "(default package)" : packagePath,
+            originalBytecodeFile.toString(),
+            originalFilename,
+            originalFilename
+        );
+        java.nio.file.Files.write(originalMetadataFile, originalMetadata.getBytes(), 
+            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+        
+        LOG.fine("Saved original bytecode for " + classNameStr + " to " + originalBytecodeFile);
+        
+      } else {
+        LOG.fine("Could not find original bytecode for class " + classNameStr);
+      }
+      
+    } catch (final Exception ex) {
+      LOG.fine("Failed to save original bytecode for " + classNameStr + ": " + ex.getMessage());
+    }
   }
 }
