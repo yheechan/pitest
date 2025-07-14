@@ -122,6 +122,8 @@ public class ReportOptions {
 
   private boolean                        fullMatrixResearchMode        = false;
 
+  private boolean                        measureExpectedTime           = false;
+
   private int                            mutationUnitSize;
   private boolean                        shouldCreateTimestampedReports = true;
   private boolean                        detectInlinedCode              = false;
@@ -459,6 +461,14 @@ public class ReportOptions {
     return fullMatrixResearchMode;
   }
 
+  public void setMeasureExpectedTime(final boolean measureExpectedTime) {
+    this.measureExpectedTime = measureExpectedTime;
+  }
+
+  public boolean isMeasureExpectedTime() {
+    return measureExpectedTime;
+  }
+
   public int getMutationUnitSize() {
     return this.mutationUnitSize;
   }
@@ -716,6 +726,7 @@ public class ReportOptions {
             .add("groupConfig=" + groupConfig)
             .add("fullMutationMatrix=" + fullMutationMatrix)
             .add("fullMatrixResearchMode=" + fullMatrixResearchMode)
+            .add("measureExpectedTime=" + measureExpectedTime)
             .add("mutationUnitSize=" + mutationUnitSize)
             .add("shouldCreateTimestampedReports=" + shouldCreateTimestampedReports)
             .add("detectInlinedCode=" + detectInlinedCode)

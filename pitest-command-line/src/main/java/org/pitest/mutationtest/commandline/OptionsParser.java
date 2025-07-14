@@ -75,6 +75,7 @@ import static org.pitest.mutationtest.config.ConfigOption.INPUT_ENCODING;
 import static org.pitest.mutationtest.config.ConfigOption.JVM_PATH;
 import static org.pitest.mutationtest.config.ConfigOption.MAX_MUTATIONS_PER_CLASS;
 import static org.pitest.mutationtest.config.ConfigOption.MAX_SURVIVING;
+import static org.pitest.mutationtest.config.ConfigOption.MEASURE_EXPECTED_TIME;
 import static org.pitest.mutationtest.config.ConfigOption.MUTATIONS;
 import static org.pitest.mutationtest.config.ConfigOption.MUTATION_ENGINE;
 import static org.pitest.mutationtest.config.ConfigOption.MUTATION_THRESHOLD;
@@ -139,6 +140,7 @@ public class OptionsParser {
   private final OptionSpec<String>                   includedTestMethodsSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> fullMutationMatrixSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> fullMatrixResearchModeSpec;
+  private final ArgumentAcceptingOptionSpec<Boolean> measureExpectedTimeSpec;
   private final OptionSpec<Integer>                  mutationUnitSizeSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> timestampedReportsSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> detectInlinedCode;
@@ -366,6 +368,13 @@ public class OptionsParser {
             "Whether to enable full matrix research mode (runs all tests for each mutant and exports detailed CSV)")
         .defaultsTo(FULL_MATRIX_RESEARCH_MODE.getDefault(Boolean.class));
 
+    this.measureExpectedTimeSpec = parserAccepts(MEASURE_EXPECTED_TIME)
+        .withOptionalArg()
+        .ofType(Boolean.class)
+        .describedAs(
+            "Whether to measure expected mutation testing time instead of running mutations")
+        .defaultsTo(MEASURE_EXPECTED_TIME.getDefault(Boolean.class));
+
     this.mutationUnitSizeSpec = parserAccepts(MUTATION_UNIT_SIZE)
         .withRequiredArg()
         .ofType(Integer.class)
@@ -480,6 +489,7 @@ public class OptionsParser {
     data.addChildJVMArgs(this.jvmArgsProcessor.values(userArgs));
     data.setFullMutationMatrix(booleanValue(fullMutationMatrixSpec, userArgs));
     data.setFullMatrixResearchMode(researchMode);
+    data.setMeasureExpectedTime(booleanValue(measureExpectedTimeSpec, userArgs));
 
     data.setDetectInlinedCode(booleanValue(detectInlinedCode, userArgs));
 

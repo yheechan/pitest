@@ -173,6 +173,11 @@ public enum ConfigOption {
   FULL_MATRIX_RESEARCH_MODE("fullMatrixResearchMode", false),
 
   /**
+   * Whether to measure expected mutation testing time instead of running mutations.
+   */
+  MEASURE_EXPECTED_TIME("measureExpectedTime", false),
+
+  /**
    * Maximum number of mutations to include within a single unit of analysis.
    */
   MUTATION_UNIT_SIZE("mutationUnitSize", 0),

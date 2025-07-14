@@ -170,7 +170,12 @@ public class MutationCoverage {
     History history = this.strategies.history();
     history.initialize();
 
+    // Measure baseline test execution time for time estimation
+    final long baselineStartTime = System.currentTimeMillis();
     CoverageDatabase coverageData = coverage().calculateCoverage(history.limitTests(unfilteredMutants));
+    final long baselineEndTime = System.currentTimeMillis();
+    final long baselineTestExecutionTime = baselineEndTime - baselineStartTime;
+    
     history.processCoverage(coverageData);
 
     
@@ -197,6 +202,13 @@ public class MutationCoverage {
     this.timings.registerEnd(Timings.Stage.BUILD_MUTATION_TESTS);
 
     LOG.info("Created " + tus.size() + " mutation test units" );
+
+    // If measureExpectedTime is enabled, estimate total time and exit
+    if (this.data.isMeasureExpectedTime()) {
+      // Calculate lines covered by failing tests for estimation metrics
+      int linesCoveredByFailingTests = calculateLinesCoveredByFailingTests(coverageData);
+      return estimateExpectedTime(tus, coverageData, baselineTestExecutionTime, unfilteredMutants.size(), linesCoveredByFailingTests);
+    }
 
     LOG.fine("Used memory before analysis start "
         + ((runtime.totalMemory() - runtime.freeMemory()) / MB) + " mb");
@@ -1209,5 +1221,203 @@ public class MutationCoverage {
     }
     
     LOG.info("Created line mapping CSV: " + lineMappingFile + " with " + allLinesInfo.size() + " lines");
+  }
+
+  /**
+   * Measure expected mutation testing time instead of running actual mutation tests.
+   * This method:
+   * 1. Runs baseline tests to measure execution time
+   * 2. Counts unfiltered mutations
+   * 3. Estimates total time based on baseline time, mutation count, and thread count
+   * 4. Returns time estimation results without running mutation tests
+   */
+  /**
+   * Estimates the expected mutation testing time based on the filtered mutations and actual baseline test execution time.
+   * This method is called after mutations have been built and filtered, using the same data
+   * that would be used for actual mutation testing.
+   */
+  private CombinedStatistics estimateExpectedTime(List<MutationAnalysisUnit> mutationTestUnits, 
+                                                 CoverageDatabase coverageData, 
+                                                 long baselineTestExecutionTime,
+                                                 int unfilteredMutationCount,
+                                                 int linesCoveredByFailingTests) {
+    
+    // Count total filtered mutations from the test units
+    int filteredMutations = mutationTestUnits.stream()
+        .mapToInt(unit -> unit.mutants().size())
+        .sum();
+
+    if (filteredMutations == 0) {
+      LOG.info("No mutations to test - expected time is 0");
+      return emptyStatistics();
+    }
+
+    // Calculate test counts from coverage data using the same logic as captureBaselineAndTestResultsFromCoverageData
+    int failingTestCount = 0;
+    int passingTestCount = 0;
+    int totalTestCount = 0;
+    
+    if (coverageData instanceof CoverageData) {
+      CoverageData cd = (CoverageData) coverageData;
+      
+      // Collect all unique tests from coverage data (same approach as captureBaselineAndTestResultsFromCoverageData)
+      Set<TestInfo> allTests = new HashSet<>();
+      for (BlockCoverage blockCov : cd.createCoverage()) {
+        Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockCov.getBlock());
+        allTests.addAll(testsForBlock);
+      }
+      
+      // Get failing test names
+      Set<String> failingTestNames = cd.getFailingTestDescriptions().stream()
+          .map(desc -> desc.getQualifiedName())
+          .collect(java.util.stream.Collectors.toSet());
+      
+      // Count tests correctly
+      totalTestCount = allTests.size();
+      failingTestCount = failingTestNames.size();
+      passingTestCount = totalTestCount - failingTestCount;
+    } else {
+      totalTestCount = coverageData.testCount();
+      passingTestCount = totalTestCount;
+    }
+    
+    LOG.info("Baseline test execution time (actual): " + baselineTestExecutionTime + " ms (" + formatTime(baselineTestExecutionTime) + ")");
+
+    // Get thread count
+    final int numberOfThreads = numberOfThreads();
+    
+    // Calculate time estimation using the formula:
+    // Total time = (baseline test execution time * number of filtered mutations) / number of threads
+    final long totalEstimatedTime = (baselineTestExecutionTime * filteredMutations) / numberOfThreads;
+    
+    // Add some overhead for setup, teardown, and coordination between threads
+    final long overheadTime = (long)(totalEstimatedTime * 0.15); // 15% overhead
+    final long finalEstimatedTime = totalEstimatedTime + overheadTime;
+
+    // Calculate mutation density metrics (only for filtered mutations)
+    double mutationsPerFailingLine = linesCoveredByFailingTests > 0 
+            ? (double) filteredMutations / linesCoveredByFailingTests : 0.0;
+
+    // Log detailed results
+    LOG.info("=== Time Estimation Results ===");
+    LOG.info("Number of failing tests: " + failingTestCount);
+    LOG.info("Number of passing tests: " + passingTestCount);
+    LOG.info("Baseline test execution time: " + baselineTestExecutionTime + " ms (" + formatTime(baselineTestExecutionTime) + ")");
+    LOG.info("Number of mutations before filter: " + unfilteredMutationCount);
+    LOG.info("Number of mutations after filter: " + filteredMutations);
+    LOG.info("Lines covered by failing tests: " + linesCoveredByFailingTests);
+    LOG.info("Average mutations per failing test line (after filter): " + String.format("%.2f", mutationsPerFailingLine));
+    LOG.info("Number of threads: " + numberOfThreads);
+    LOG.info("Estimated time per mutation: " + baselineTestExecutionTime + " ms");
+    LOG.info("Total estimated mutation testing time (parallel): " + formatTime(totalEstimatedTime));
+    LOG.info("Estimated time with overhead (15%): " + formatTime(finalEstimatedTime));
+    LOG.info("========================================");
+
+    // Create minimal statistics for the result
+    final CoverageSummary coverageSummary = new CoverageSummary(
+        0, // No lines analyzed for mutations
+        0, // No lines covered in mutation testing
+        totalTestCount // Number of tests from baseline
+    );
+
+    final MutationStatistics mutationStats = new MutationStatistics(
+        emptyList(), // No mutation scores
+        filteredMutations, // Total mutations found (for info)
+        0, // No mutations killed  
+        0, // No surviving mutations
+        0, // No timeout mutations
+        emptySet() // No mutated classes
+    );
+
+    return new CombinedStatistics(mutationStats, coverageSummary, emptyList());
+  }
+
+  /**
+   * Format time in a human-readable format.
+   */
+  private String formatTime(long milliseconds) {
+    if (milliseconds < 1000) {
+      return milliseconds + " ms";
+    } else if (milliseconds < 60000) {
+      return String.format("%.1f seconds", milliseconds / 1000.0);
+    } else if (milliseconds < 3600000) {
+      return String.format("%.1f minutes", milliseconds / 60000.0);
+    } else {
+      return String.format("%.1f hours", milliseconds / 3600000.0);
+    }
+  }
+  
+  /**
+   * Calculate the number of lines covered by failing test cases.
+   * This is used for time estimation metrics to show mutation density.
+   */
+  private int calculateLinesCoveredByFailingTests(CoverageDatabase coverageData) {
+    if (!(coverageData instanceof CoverageData)) {
+      LOG.fine("Coverage data is not a CoverageData instance, cannot calculate failing test lines");
+      return 0;
+    }
+    
+    try {
+      CoverageData cd = (CoverageData) coverageData;
+      
+      // Get failing test names
+      Set<String> failingTestNames = cd.getFailingTestDescriptions().stream()
+          .map(desc -> desc.getQualifiedName())
+          .collect(java.util.stream.Collectors.toSet());
+      
+      if (failingTestNames.isEmpty()) {
+        LOG.info("No failing tests found - lines covered by failing tests: 0");
+        return 0;
+      }
+      
+      Set<String> linesCoveredByFailingTests = new HashSet<>();
+      
+      // Analyze line coverage by failing tests
+      for (ClassName className : this.code.getCodeUnderTestNames()) {
+        Set<ClassLine> coveredLines = cd.getCoveredLines(className);
+        
+        for (ClassLine line : coveredLines) {
+          int lineNumber = line.getLineNumber();
+          boolean coveredByFailingTest = false;
+          
+          // Check all block coverage to find blocks that cover this specific line
+          for (BlockCoverage blockCov : cd.createCoverage()) {
+            BlockLocation blockLocation = blockCov.getBlock();
+            
+            // Only check blocks from the same class
+            if (blockLocation.getLocation().getClassName().equals(className)) {
+              // Get the lines covered by this block
+              Set<Integer> blockLines = getBlockLines(cd, blockLocation);
+              
+              // Check if this block covers the current line
+              if (blockLines.contains(lineNumber)) {
+                // Get the tests that cover this specific block
+                Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockLocation);
+                
+                // Check if any of the tests for this block are failing tests
+                boolean blockCoveredByFailingTest = testsForBlock.stream()
+                    .anyMatch(test -> failingTestNames.contains(test.getName()));
+                
+                if (blockCoveredByFailingTest) {
+                  coveredByFailingTest = true;
+                  break;
+                }
+              }
+            }
+          }
+          
+          if (coveredByFailingTest) {
+            linesCoveredByFailingTests.add(className.asJavaName() + ":" + lineNumber);
+          }
+        }
+      }
+      
+      LOG.info("Found " + linesCoveredByFailingTests.size() + " lines covered by failing tests");
+      return linesCoveredByFailingTests.size();
+      
+    } catch (Exception e) {
+      LOG.warning("Failed to calculate lines covered by failing tests: " + e.getMessage());
+      return 0;
+    }
   }
 }
