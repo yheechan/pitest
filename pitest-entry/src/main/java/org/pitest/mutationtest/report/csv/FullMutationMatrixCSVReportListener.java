@@ -7,6 +7,7 @@ package org.pitest.mutationtest.report.csv;
 import java.io.IOException;
 import java.io.Writer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -21,13 +22,15 @@ import org.pitest.util.ResultOutputStrategy;
 
 /**
  * Enhanced CSV reporter that outputs detailed mutation-test matrix data
- * Format: mutant_id,class,method,line,mutator,test_name,transition,status
+ * Format: one row per mutant with bit sequences for transition results
+ * Header: mutant_id,class,method,line,mutator,F2P_transition,P2F_transition,P2P_transition,F2F_transition,exception_type_transition,exception_msg_transition,stacktrace_transition,status,num_tests_run
  */
 public class FullMutationMatrixCSVReportListener implements MutationResultListener {
 
     private final Writer out;
     private final Map<String, TestCaseMetadata> testCaseMetadata;
     private final List<MutationResultSummary> mutationSummaries = new ArrayList<>();
+    private List<String> orderedTestNames; // Consistent test order for bit sequences
 
     public FullMutationMatrixCSVReportListener(final ResultOutputStrategy outputStrategy) throws IOException {
         this(outputStrategy, null, null);
@@ -44,6 +47,9 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         this.out = outputStrategy.createWriterForFile("full_mutation_matrix.csv");
         this.testCaseMetadata = testCaseMetadata;
         
+        // Initialize ordered test names from metadata for consistent bit sequence order
+        this.orderedTestNames = createOrderedTestNames();
+        
         // Initialize the mutation results file system
         try {
             String actualReportDir = reportDir != null ? reportDir : System.getProperty("reportDir", "target/pit-reports");
@@ -53,11 +59,29 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         }
     }
 
+    /**
+     * Create an ordered list of test names based on test case metadata (tcID order).
+     * This ensures consistent bit sequence ordering across all mutants.
+     */
+    private List<String> createOrderedTestNames() {
+        if (testCaseMetadata == null || testCaseMetadata.isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        // Sort tests by tcID to ensure consistent ordering
+        List<String> orderedNames = new ArrayList<>();
+        testCaseMetadata.entrySet().stream()
+            .sorted((e1, e2) -> Integer.compare(e1.getValue().getTcID(), e2.getValue().getTcID()))
+            .forEach(entry -> orderedNames.add(entry.getKey()));
+        
+        return orderedNames;
+    }
+
     @Override
     public void runStart() {
         try {
-            // Write CSV header with new detailed columns
-            out.write("mutant_id,class,method,line,mutator,test_name,result_transition,exception_type_transition,exception_msg_transition,stacktrace_transition,status,num_tests_run\n");
+            // Write CSV header with bit sequence transition columns
+            out.write("mutant_id,class,method,line,mutator,F2P_transition,P2F_transition,P2P_transition,F2F_transition,exception_type_transition,exception_msg_transition,stacktrace_transition,status,num_tests_run\n");
         } catch (IOException e) {
             throw new RuntimeException("Error writing CSV header", e);
         }
@@ -89,11 +113,9 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
                     MutationResultsFileManager.saveMutationTestResults(uniqueMutationId, 
                         mutantDescription, detailedResults);
                     
-                    // Use the new detailed results for enhanced reporting
-                    for (DetailedMutationTestResult testResult : detailedResults) {
-                        writeDetailedRow(String.valueOf(uniqueMutationId), className, methodName, lineNumber, 
-                                mutatorName, testResult, status, numTestsRun);
-                    }
+                    // Write single row with bit sequences for this mutant
+                    writeMutantRowWithBitSequences(String.valueOf(uniqueMutationId), className, methodName, lineNumber, 
+                            mutatorName, detailedResults, status, numTestsRun);
                     
                     // Add to summary
                     mutationSummaries.add(new MutationResultSummary(uniqueMutationId, 
@@ -104,8 +126,8 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
                         mutantDescription, null);
                     
                     // Fall back to legacy approach using killing/surviving test lists
-                    handleLegacyMutationResult(mutation, String.valueOf(uniqueMutationId), className, methodName, 
-                                             lineNumber, mutatorName, status, numTestsRun);
+                    writeMutantRowWithLegacyData(mutation, String.valueOf(uniqueMutationId), className, methodName, 
+                                               lineNumber, mutatorName, status, numTestsRun);
                     
                     // Add to summary
                     mutationSummaries.add(new MutationResultSummary(uniqueMutationId, 
@@ -117,41 +139,126 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         }
     }
 
-    private void writeDetailedRow(String mutantId, String className, String methodName, 
-                                 int lineNumber, String mutatorName, DetailedMutationTestResult testResult,
-                                 String status, int numTestsRun) throws IOException {
+    /**
+     * Write a single row for a mutant with bit sequences representing transitions across all tests.
+     * Each bit sequence has one bit per test case in the ordered test list.
+     */
+    private void writeMutantRowWithBitSequences(String mutantId, String className, String methodName, 
+                                               int lineNumber, String mutatorName, 
+                                               List<DetailedMutationTestResult> detailedResults,
+                                               String status, int numTestsRun) throws IOException {
         StringBuilder row = new StringBuilder();
         
-        // mutant_id,class,method,line,mutator,test_name
+        // Basic mutant information
         row.append(escapeCsv(mutantId)).append(",");
         row.append(escapeCsv(className)).append(",");
         row.append(escapeCsv(methodName)).append(",");
         row.append(lineNumber).append(",");
         row.append(escapeCsv(mutatorName)).append(",");
-        row.append(escapeCsv(testResult.getTestName())).append(",");
         
-        // result_transition (P2F, F2P, F2F, P2P)
-        String resultTransition = computeResultTransition(testResult);
-        row.append(resultTransition).append(",");
+        // Create bit sequences for transitions
+        String f2pBitSequence = createTransitionBitSequence(detailedResults, "F2P");
+        String p2fBitSequence = createTransitionBitSequence(detailedResults, "P2F");
+        String p2pBitSequence = createTransitionBitSequence(detailedResults, "P2P");
+        String f2fBitSequence = createTransitionBitSequence(detailedResults, "F2F");
+        String exceptionTypeBitSequence = createExceptionTransitionBitSequence(detailedResults, "TYPE");
+        String exceptionMsgBitSequence = createExceptionTransitionBitSequence(detailedResults, "MESSAGE");
+        String stacktraceBitSequence = createExceptionTransitionBitSequence(detailedResults, "STACKTRACE");
         
-        // exception_type_transition (1 if changed, 0 otherwise)
-        int exceptionTypeTransition = computeExceptionTypeTransition(testResult);
-        row.append(exceptionTypeTransition).append(",");
+        // Add bit sequences to row
+        row.append(f2pBitSequence).append(",");
+        row.append(p2fBitSequence).append(",");
+        row.append(p2pBitSequence).append(",");
+        row.append(f2fBitSequence).append(",");
+        row.append(exceptionTypeBitSequence).append(",");
+        row.append(exceptionMsgBitSequence).append(",");
+        row.append(stacktraceBitSequence).append(",");
         
-        // exception_msg_transition (1 if changed, 0 otherwise)
-        int exceptionMsgTransition = computeExceptionMsgTransition(testResult);
-        row.append(exceptionMsgTransition).append(",");
-        
-        // stacktrace_transition (1 if changed, 0 otherwise)
-        int stacktraceTransition = computeStacktraceTransition(testResult);
-        row.append(stacktraceTransition).append(",");
-        
-        // status,num_tests_run
+        // Status and test count
         row.append(escapeCsv(status)).append(",");
         row.append(numTestsRun);
         
         row.append("\n");
         out.write(row.toString());
+    }
+
+    /**
+     * Create a bit sequence for a specific transition type across all ordered tests.
+     * @param detailedResults the test results for this mutant
+     * @param transitionType "F2P", "P2F", "P2P", or "F2F"
+     * @return bit sequence string where 1 = transition occurred, 0 = transition did not occur
+     */
+    private String createTransitionBitSequence(List<DetailedMutationTestResult> detailedResults, String transitionType) {
+        if (orderedTestNames.isEmpty()) {
+            return ""; // No test metadata available
+        }
+        
+        // Create a map of test results for quick lookup
+        Map<String, DetailedMutationTestResult> resultMap = new HashMap<>();
+        for (DetailedMutationTestResult result : detailedResults) {
+            resultMap.put(result.getTestName(), result);
+        }
+        
+        StringBuilder bitSequence = new StringBuilder();
+        
+        for (String testName : orderedTestNames) {
+            DetailedMutationTestResult testResult = resultMap.get(testName);
+            
+            if (testResult == null) {
+                // Test was not executed on this mutant, assume no transition
+                bitSequence.append("0");
+            } else {
+                String actualTransition = computeResultTransition(testResult);
+                bitSequence.append(actualTransition.equals(transitionType) ? "1" : "0");
+            }
+        }
+        
+        return bitSequence.toString();
+    }
+
+    /**
+     * Create a bit sequence for exception transitions across all ordered tests.
+     * @param detailedResults the test results for this mutant
+     * @param exceptionType "TYPE", "MESSAGE", or "STACKTRACE"
+     * @return bit sequence string where 1 = exception change occurred, 0 = no change
+     */
+    private String createExceptionTransitionBitSequence(List<DetailedMutationTestResult> detailedResults, String exceptionType) {
+        if (orderedTestNames.isEmpty()) {
+            return ""; // No test metadata available
+        }
+        
+        // Create a map of test results for quick lookup
+        Map<String, DetailedMutationTestResult> resultMap = new HashMap<>();
+        for (DetailedMutationTestResult result : detailedResults) {
+            resultMap.put(result.getTestName(), result);
+        }
+        
+        StringBuilder bitSequence = new StringBuilder();
+        
+        for (String testName : orderedTestNames) {
+            DetailedMutationTestResult testResult = resultMap.get(testName);
+            
+            if (testResult == null) {
+                // Test was not executed on this mutant, assume no change
+                bitSequence.append("0");
+            } else {
+                boolean hasChange = false;
+                switch (exceptionType) {
+                    case "TYPE":
+                        hasChange = computeExceptionTypeTransition(testResult) == 1;
+                        break;
+                    case "MESSAGE":
+                        hasChange = computeExceptionMsgTransition(testResult) == 1;
+                        break;
+                    case "STACKTRACE":
+                        hasChange = computeStacktraceTransition(testResult) == 1;
+                        break;
+                }
+                bitSequence.append(hasChange ? "1" : "0");
+            }
+        }
+        
+        return bitSequence.toString();
     }
 
     private String computeResultTransition(DetailedMutationTestResult testResult) {
@@ -219,67 +326,82 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         return testResult.hasStackTraceChanged(baseline) ? 1 : 0;
     }
 
-    private void handleLegacyMutationResult(MutationResult mutation, String mutantId, String className, 
-                                          String methodName, int lineNumber, String mutatorName, 
-                                          String status, int numTestsRun) throws IOException {
-        // Legacy logic for backward compatibility
-        List<String> killingTests = mutation.getKillingTests();
-        List<String> survivingTests = mutation.getSucceedingTests();
-        List<String> coveringTests = mutation.getCoveringTests();
-
-        // In research mode, we want all tests that were actually executed
-        // This includes both killing and surviving tests
-        java.util.Set<String> allExecutedTests = new java.util.HashSet<>();
-        allExecutedTests.addAll(killingTests);
-        allExecutedTests.addAll(survivingTests);
-        
-        // If no tests were executed from baseline-aware results, fall back to covering tests
-        if (allExecutedTests.isEmpty()) {
-            allExecutedTests.addAll(coveringTests);
-        }
-
-        // Output one row per test that was executed on this mutant
-        if (!allExecutedTests.isEmpty()) {
-            for (String testName : allExecutedTests) {
-                writeLegacyRow(mutantId, className, methodName, lineNumber, 
-                        mutatorName, testName, killingTests, survivingTests, status, numTestsRun);
-            }
-        } else {
-            // No tests executed - output one row with empty test name
-            writeLegacyRow(mutantId, className, methodName, lineNumber, 
-                    mutatorName, "NO_COVERAGE", killingTests, survivingTests, status, numTestsRun);
-        }
-    }
-
-    private void writeLegacyRow(String mutantId, String className, String methodName, 
-                               int lineNumber, String mutatorName, String testName,
-                               List<String> killingTests, List<String> survivingTests,
-                               String status, int numTestsRun) throws IOException {
+    /**
+     * Write a single row for a mutant using legacy data (killing/surviving test lists).
+     * Creates bit sequences based on available legacy information.
+     */
+    private void writeMutantRowWithLegacyData(MutationResult mutation, String mutantId, String className, 
+                                            String methodName, int lineNumber, String mutatorName, 
+                                            String status, int numTestsRun) throws IOException {
         StringBuilder row = new StringBuilder();
         
-        // mutant_id,class,method,line,mutator,test_name
+        // Basic mutant information
         row.append(escapeCsv(mutantId)).append(",");
         row.append(escapeCsv(className)).append(",");
         row.append(escapeCsv(methodName)).append(",");
         row.append(lineNumber).append(",");
         row.append(escapeCsv(mutatorName)).append(",");
-        row.append(escapeCsv(testName)).append(",");
         
-        // result_transition (based on legacy logic)
-        String resultTransition = getLegacyResultTransition(testName, killingTests, survivingTests);
-        row.append(resultTransition).append(",");
+        // Create bit sequences from legacy data
+        List<String> killingTests = mutation.getKillingTests();
+        List<String> survivingTests = mutation.getSucceedingTests();
         
-        // exception transitions (set to 0 for legacy data)
-        row.append("0,"); // exception_type_transition
-        row.append("0,"); // exception_msg_transition  
-        row.append("0,"); // stacktrace_transition
+        String f2pBitSequence = createLegacyTransitionBitSequence(killingTests, survivingTests, "F2P");
+        String p2fBitSequence = createLegacyTransitionBitSequence(killingTests, survivingTests, "P2F");
+        String p2pBitSequence = createLegacyTransitionBitSequence(killingTests, survivingTests, "P2P");
+        String f2fBitSequence = createLegacyTransitionBitSequence(killingTests, survivingTests, "F2F");
         
-        // status,num_tests_run
+        // Exception transitions are not available in legacy data, use empty sequences
+        String emptyBitSequence = createEmptyBitSequence();
+        
+        // Add bit sequences to row
+        row.append(f2pBitSequence).append(",");
+        row.append(p2fBitSequence).append(",");
+        row.append(p2pBitSequence).append(",");
+        row.append(f2fBitSequence).append(",");
+        row.append(emptyBitSequence).append(","); // exception_type_transition
+        row.append(emptyBitSequence).append(","); // exception_msg_transition
+        row.append(emptyBitSequence).append(","); // stacktrace_transition
+        
+        // Status and test count
         row.append(escapeCsv(status)).append(",");
         row.append(numTestsRun);
         
         row.append("\n");
         out.write(row.toString());
+    }
+
+    /**
+     * Create a bit sequence for legacy transitions based on killing/surviving test lists.
+     */
+    private String createLegacyTransitionBitSequence(List<String> killingTests, List<String> survivingTests, String transitionType) {
+        if (orderedTestNames.isEmpty()) {
+            return ""; // No test metadata available
+        }
+        
+        StringBuilder bitSequence = new StringBuilder();
+        
+        for (String testName : orderedTestNames) {
+            String legacyTransition = getLegacyResultTransition(testName, killingTests, survivingTests);
+            bitSequence.append(legacyTransition.equals(transitionType) ? "1" : "0");
+        }
+        
+        return bitSequence.toString();
+    }
+
+    /**
+     * Create an empty bit sequence (all zeros) for cases where data is not available.
+     */
+    private String createEmptyBitSequence() {
+        if (orderedTestNames.isEmpty()) {
+            return "";
+        }
+        
+        StringBuilder bitSequence = new StringBuilder();
+        for (int i = 0; i < orderedTestNames.size(); i++) {
+            bitSequence.append("0");
+        }
+        return bitSequence.toString();
     }
 
     private String getLegacyResultTransition(String testName, List<String> killingTests, List<String> survivingTests) {
