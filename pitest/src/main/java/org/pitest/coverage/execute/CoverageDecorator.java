@@ -61,9 +61,9 @@ public class CoverageDecorator extends TestUnitDecorator {
     // Get exception details from the collector
     boolean testPassed = !wrappedCollector.shouldExit();
     Throwable exception = wrappedCollector.getException();
-    String exceptionType = "";
-    String exceptionMessage = "";
-    String stackTrace = "";
+    String exceptionType = "None";
+    String exceptionMessage = "None";
+    String stackTrace = "None";
     
     if (!testPassed && exception != null) {
         exceptionType = exception.getClass().getSimpleName();
@@ -86,12 +86,8 @@ public class CoverageDecorator extends TestUnitDecorator {
     throwable.printStackTrace(pw);
     pw.close();
     
-    // Truncate very long stack traces to avoid communication issues
-    String fullTrace = sw.toString();
-    if (fullTrace.length() > 2000) {
-      return fullTrace.substring(0, 2000) + "... [truncated]";
-    }
-    return fullTrace;
+    // Return full stack trace without truncation
+    return sw.toString();
   }
 
   /**

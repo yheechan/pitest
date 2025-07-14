@@ -32,7 +32,9 @@ public class WorkerFactory {
   private final MutationConfig        config;
   private final EngineArguments       args;
   private final String                reportDir;
+  private final java.util.Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> testCaseMetadata;
 
+  @SuppressWarnings("unchecked")
   public WorkerFactory(final File baseDir,
       final TestPluginArguments pitConfig,
       final MutationConfig mutationConfig,
@@ -42,7 +44,8 @@ public class WorkerFactory {
       final boolean fullMutationMatrix,
       final boolean fullMatrixResearchMode,
       final String classPath,
-      final String reportDir) {
+      final String reportDir,
+      final java.util.Map testCaseMetadata) {
     this.pitConfig = pitConfig;
     this.timeoutStrategy = timeoutStrategy;
     this.verbosity = verbosity;
@@ -53,14 +56,20 @@ public class WorkerFactory {
     this.config = mutationConfig;
     this.args = args;
     this.reportDir = reportDir;
+    this.testCaseMetadata = testCaseMetadata != null 
+        ? new java.util.HashMap<String, org.pitest.mutationtest.execute.TestCaseMetadata>(testCaseMetadata) 
+        : new java.util.HashMap<String, org.pitest.mutationtest.execute.TestCaseMetadata>();
   }
 
   public MutationTestProcess createWorker(
       final Collection<MutationDetails> remainingMutations,
       final Collection<ClassName> testClasses) {
+    
+    // Use the test case metadata that was passed in during construction
     final MinionArguments fileArgs = new MinionArguments(remainingMutations,
         testClasses, this.config.getEngine().getName(), this.args, this.timeoutStrategy,
-        Log.verbosity(), this.fullMutationMatrix, this.fullMatrixResearchMode, this.pitConfig, this.reportDir);
+        Log.verbosity(), this.fullMutationMatrix, this.fullMatrixResearchMode, this.pitConfig, this.reportDir,
+        this.testCaseMetadata);
 
     final ProcessArgs args = ProcessArgs.withClassPath(this.classPath)
         .andLaunchOptions(this.config.getLaunchOptions())

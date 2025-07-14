@@ -21,7 +21,9 @@ public class FullMutationMatrixCSVReportFactory implements MutationResultListene
       final ListenerArguments args) {
     // Create the listener when the feature is activated (by setting the research mode flag)
     try {
-      return new FullMutationMatrixCSVReportListener(args.getOutputStrategy());
+      String reportDir = args.data().getReportDir();
+      return new FullMutationMatrixCSVReportListener(args.getOutputStrategy(), 
+          args.getTestCaseMetadata(), reportDir);
     } catch (Exception e) {
       throw new RuntimeException("Failed to create full mutation matrix CSV listener", e);
     }

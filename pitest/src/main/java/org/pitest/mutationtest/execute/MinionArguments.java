@@ -16,6 +16,7 @@ package org.pitest.mutationtest.execute;
 
 import java.io.Serializable;
 import java.util.Collection;
+import java.util.Map;
 
 import org.pitest.classinfo.ClassName;
 import org.pitest.mutationtest.EngineArguments;
@@ -38,11 +39,13 @@ public class MinionArguments implements Serializable {
   final boolean                     fullMatrixResearchMode;
   final TestPluginArguments         pitConfig;
   final String                      reportDir;
+  final Map<String, TestCaseMetadata> testCaseMetadata;
 
   public MinionArguments(final Collection<MutationDetails> mutations,
       final Collection<ClassName> tests, final String engine, final EngineArguments engineArgs,
       final TimeoutLengthStrategy timeoutStrategy, final Verbosity verbosity, final boolean fullMutationMatrix,
-      final boolean fullMatrixResearchMode, final TestPluginArguments pitConfig, final String reportDir) {
+      final boolean fullMatrixResearchMode, final TestPluginArguments pitConfig, final String reportDir,
+      final Map<String, TestCaseMetadata> testCaseMetadata) {
     this.mutations = mutations;
     this.testClasses = tests;
     this.engine = engine;
@@ -53,6 +56,7 @@ public class MinionArguments implements Serializable {
     this.fullMatrixResearchMode = fullMatrixResearchMode;
     this.pitConfig = pitConfig;
     this.reportDir = reportDir;
+    this.testCaseMetadata = testCaseMetadata;
   }
 
   public Verbosity verbosity() {

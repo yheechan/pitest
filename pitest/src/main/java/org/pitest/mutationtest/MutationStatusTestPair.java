@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import org.pitest.mutationtest.execute.DetailedMutationTestResult;
+
 public final class MutationStatusTestPair implements Serializable {
 
   private static final long serialVersionUID = 1L;
@@ -28,8 +30,8 @@ public final class MutationStatusTestPair implements Serializable {
   private final DetectionStatus status;
   private final List<String>    killingTests;
   private final List<String>    succeedingTests;
-
   private final List<String>    coveringTests;
+  private final List<DetailedMutationTestResult> detailedResults;
 
   @Deprecated
   // for backwards compatibility. Remove at next major release
@@ -38,13 +40,13 @@ public final class MutationStatusTestPair implements Serializable {
   }
 
   public static MutationStatusTestPair notAnalysed(int testsRun, DetectionStatus status, List<String> coveringTests) {
-    return new MutationStatusTestPair(testsRun, status, Collections.emptyList(), Collections.emptyList(), coveringTests);
+    return new MutationStatusTestPair(testsRun, status, Collections.emptyList(), Collections.emptyList(), coveringTests, Collections.emptyList());
   }
 
   public MutationStatusTestPair(final int numberOfTestsRun,
       final DetectionStatus status, final String killingTest) {
     this(numberOfTestsRun, status, killingTestToList(killingTest),
-      Collections.emptyList(),killingTestToList(killingTest));
+      Collections.emptyList(),killingTestToList(killingTest), Collections.emptyList());
   }
 
   // for backwards compatibility. Remove at next major release
@@ -52,17 +54,25 @@ public final class MutationStatusTestPair implements Serializable {
   public MutationStatusTestPair(final int numberOfTestsRun,
                                 final DetectionStatus status, final List<String> killingTests,
                                 final List<String> succeedingTests) {
-    this(numberOfTestsRun, status, killingTests, succeedingTests, Collections.emptyList());
+    this(numberOfTestsRun, status, killingTests, succeedingTests, Collections.emptyList(), Collections.emptyList());
   }
 
   public MutationStatusTestPair(final int numberOfTestsRun,
       final DetectionStatus status, final List<String> killingTests,
       final List<String> succeedingTests, final List<String> coveringTests) {
+    this(numberOfTestsRun, status, killingTests, succeedingTests, coveringTests, Collections.emptyList());
+  }
+
+  public MutationStatusTestPair(final int numberOfTestsRun,
+      final DetectionStatus status, final List<String> killingTests,
+      final List<String> succeedingTests, final List<String> coveringTests,
+      final List<DetailedMutationTestResult> detailedResults) {
     this.status = status;
     this.killingTests = killingTests;
     this.succeedingTests = succeedingTests;
     this.numberOfTestsRun = numberOfTestsRun;
     this.coveringTests = coveringTests;
+    this.detailedResults = detailedResults != null ? detailedResults : Collections.emptyList();
   }
   
   private static List<String> killingTestToList(String killingTest) {
@@ -106,6 +116,10 @@ public final class MutationStatusTestPair implements Serializable {
     return coveringTests;
   }
 
+  public List<DetailedMutationTestResult> getDetailedResults() {
+    return detailedResults;
+  }
+
   public int getNumberOfTestsRun() {
     return this.numberOfTestsRun;
   }
@@ -121,7 +135,7 @@ public final class MutationStatusTestPair implements Serializable {
 
   @Override
   public int hashCode() {
-    return Objects.hash(numberOfTestsRun, status, killingTests, succeedingTests, coveringTests);
+    return Objects.hash(numberOfTestsRun, status, killingTests, succeedingTests, coveringTests, detailedResults);
   }
 
   @Override
@@ -137,6 +151,7 @@ public final class MutationStatusTestPair implements Serializable {
             && status == other.status
             && Objects.equals(killingTests, other.killingTests)
             && Objects.equals(succeedingTests, other.succeedingTests)
-            && Objects.equals(coveringTests, other.coveringTests);
+            && Objects.equals(coveringTests, other.coveringTests)
+            && Objects.equals(detailedResults, other.detailedResults);
   }
 }

@@ -59,7 +59,7 @@ public class MutationTestWorkerTest {
   public void setUp() {
     MockitoAnnotations.openMocks(this);
     this.testee = new MutationTestWorker(this.hotswapper, this.mutater,
-        this.loader, this.reset, false, false, null);
+        this.loader, this.reset, false, false, null, new java.util.HashMap<>());
   }
 
   @Test
@@ -135,7 +135,7 @@ public class MutationTestWorkerTest {
   public void shouldUseBaselineAwareMutationDetectionInResearchMode() throws IOException {
     // Test that research mode uses baseline comparison for correct mutation detection
     final MutationTestWorker researchModeWorker = new MutationTestWorker(
-        this.hotswapper, this.mutater, this.loader, this.reset, false, true, null);
+        this.hotswapper, this.mutater, this.loader, this.reset, false, true, null, new java.util.HashMap<>());
     
     final MutationDetails mutantOne = makeMutant("foo", 1);
     final Collection<MutationDetails> range = Arrays.asList(mutantOne);
@@ -154,7 +154,7 @@ public class MutationTestWorkerTest {
   public void shouldUseStandardModeForNonResearchMutationTesting() throws IOException {
     // Test that standard mode continues to work as before
     final MutationTestWorker standardWorker = new MutationTestWorker(
-        this.hotswapper, this.mutater, this.loader, this.reset, false, false, null);
+        this.hotswapper, this.mutater, this.loader, this.reset, false, false, null, new java.util.HashMap<>());
     
     final MutationDetails mutantOne = makeMutant("foo", 1);
     final Collection<MutationDetails> range = Arrays.asList(mutantOne);
@@ -176,7 +176,7 @@ public class MutationTestWorkerTest {
     
     // Test that research mode with reportDir saves mutated bytecode
     final MutationTestWorker researchModeWorker = new MutationTestWorker(
-        this.hotswapper, this.mutater, this.loader, this.reset, false, true, tempDir);
+        this.hotswapper, this.mutater, this.loader, this.reset, false, true, tempDir, new java.util.HashMap<>());
     
     final MutationDetails mutantOne = makeMutant("com.example.Calculator", 1);
     final Collection<MutationDetails> range = Arrays.asList(mutantOne);

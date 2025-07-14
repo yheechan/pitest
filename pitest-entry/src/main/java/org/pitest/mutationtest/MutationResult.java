@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import org.pitest.mutationtest.engine.MutationDetails;
+import org.pitest.mutationtest.execute.DetailedMutationTestResult;
 public final class MutationResult {
 
   private final MutationDetails        details;
@@ -50,6 +51,10 @@ public final class MutationResult {
 
   public List<String> getCoveringTests() {
     return this.status.getCoveringTests();
+  }
+
+  public List<DetailedMutationTestResult> getDetailedResults() {
+    return this.status.getDetailedResults();
   }
 
   public DetectionStatus getStatus() {

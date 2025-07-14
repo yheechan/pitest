@@ -17,7 +17,7 @@ public class CoverageResult {
   public CoverageResult(final Description testUnitDescription,
       final int executionTime, final boolean greenSuite,
       final Collection<BlockLocation> visitedBlocks) {
-    this(testUnitDescription, executionTime, greenSuite, visitedBlocks, "", "", "");
+    this(testUnitDescription, executionTime, greenSuite, visitedBlocks, "None", "None", "None");
   }
 
   public CoverageResult(final Description testUnitDescription,
@@ -28,9 +28,9 @@ public class CoverageResult {
     this.executionTime = executionTime;
     this.visitedBlocks = visitedBlocks;
     this.greenSuite = greenSuite;
-    this.exceptionType = exceptionType != null ? exceptionType : "";
-    this.exceptionMessage = exceptionMessage != null ? exceptionMessage : "";
-    this.stackTrace = stackTrace != null ? stackTrace : "";
+    this.exceptionType = exceptionType != null ? exceptionType : "None";
+    this.exceptionMessage = exceptionMessage != null ? exceptionMessage : "None";
+    this.stackTrace = stackTrace != null ? stackTrace : "None";
   }
 
   public Description getTestUnitDescription() {

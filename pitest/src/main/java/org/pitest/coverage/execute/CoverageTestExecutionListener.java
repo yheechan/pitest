@@ -100,12 +100,8 @@ public class CoverageTestExecutionListener implements TestUnitExecutionListener 
         throwable.printStackTrace(pw);
         pw.close();
         
-        // Truncate very long stack traces to avoid communication issues
-        String fullTrace = sw.toString();
-        if (fullTrace.length() > 2000) {
-            return fullTrace.substring(0, 2000) + "... [truncated]";
-        }
-        return fullTrace;
+        // Return full stack trace without truncation
+        return sw.toString();
     }
 
 }

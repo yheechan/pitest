@@ -9,6 +9,7 @@ import org.pitest.util.ResultOutputStrategy;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -27,6 +28,7 @@ public class ListenerArguments {
   private final ReportOptions        data;
   private final FeatureSetting       setting;
   private final List<BuildMessage> issues;
+  private final Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> testCaseMetadata;
 
   public ListenerArguments(ResultOutputStrategy outputStrategy,
                            ReportCoverage coverage,
@@ -36,7 +38,19 @@ public class ListenerArguments {
                            boolean fullMutationMatrix,
                            ReportOptions  data,
                            List<BuildMessage> issues) {
-    this(outputStrategy, coverage, locator, engine, startTime, fullMutationMatrix, data, null, issues);
+    this(outputStrategy, coverage, locator, engine, startTime, fullMutationMatrix, data, null, issues, null);
+  }
+
+  public ListenerArguments(ResultOutputStrategy outputStrategy,
+                           ReportCoverage coverage,
+                           SourceLocator locator,
+                           MutationEngine engine,
+                           long startTime,
+                           boolean fullMutationMatrix,
+                           ReportOptions  data,
+                           List<BuildMessage> issues,
+                           Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> testCaseMetadata) {
+    this(outputStrategy, coverage, locator, engine, startTime, fullMutationMatrix, data, null, issues, testCaseMetadata);
   }
 
   ListenerArguments(ResultOutputStrategy outputStrategy,
@@ -47,7 +61,8 @@ public class ListenerArguments {
                            boolean fullMutationMatrix,
                            ReportOptions  data,
                            FeatureSetting setting,
-                           List<BuildMessage> issues) {
+                           List<BuildMessage> issues,
+                           Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> testCaseMetadata) {
     this.outputStrategy = outputStrategy;
     this.coverage = coverage;
     this.locator = locator;
@@ -56,6 +71,7 @@ public class ListenerArguments {
     this.fullMutationMatrix = fullMutationMatrix;
     this.data = data;
     this.setting = setting;
+    this.testCaseMetadata = testCaseMetadata;
     this.issues = issues.stream()
             .distinct()
             .sorted()
@@ -98,6 +114,10 @@ public class ListenerArguments {
     return Collections.unmodifiableList(issues);
   }
 
+  public Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> getTestCaseMetadata() {
+    return testCaseMetadata;
+  }
+
   public ListenerArguments withSetting(FeatureSetting setting) {
     return new ListenerArguments(outputStrategy,
             coverage,
@@ -107,7 +127,8 @@ public class ListenerArguments {
             fullMutationMatrix,
             data,
             setting,
-            issues);
+            issues,
+            testCaseMetadata);
   }
 
 }

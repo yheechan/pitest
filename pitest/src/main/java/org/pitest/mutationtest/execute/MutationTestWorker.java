@@ -22,7 +22,6 @@ import org.pitest.mutationtest.engine.Mutant;
 import org.pitest.mutationtest.engine.Mutater;
 import org.pitest.mutationtest.engine.MutationDetails;
 import org.pitest.mutationtest.engine.MutationIdentifier;
-import org.pitest.testapi.Description;
 import org.pitest.testapi.TestResult;
 import org.pitest.testapi.TestUnit;
 import org.pitest.testapi.execute.Container;
@@ -70,7 +69,10 @@ public class MutationTestWorker {
 
   private final ResetEnvironment                            reset;
 
-  // Baseline results captured once for all mutations in research mode
+  // Test case metadata passed from main process
+  private final Map<String, TestCaseMetadata>              testCaseMetadata;
+
+  // Baseline results extracted from test case metadata for research mode
   private Map<String, Boolean> baselineResults = null;
 
 
@@ -80,7 +82,8 @@ public class MutationTestWorker {
                             ResetEnvironment reset,
                             boolean fullMutationMatrix,
                             boolean fullMatrixResearchMode,
-                            String reportDir) {
+                            String reportDir,
+                            Map<String, TestCaseMetadata> testCaseMetadata) {
     this.loader = loader;
     this.reset = reset;
     this.mutater = mutater;
@@ -88,16 +91,17 @@ public class MutationTestWorker {
     this.fullMutationMatrix = fullMutationMatrix;
     this.fullMatrixResearchMode = fullMatrixResearchMode;
     this.reportDir = reportDir;
+    this.testCaseMetadata = testCaseMetadata;
   }
 
   protected void run(final Collection<MutationDetails> range, final Reporter r,
       final TimeOutDecoratedTestSource testSource) throws IOException {
 
-    // In research mode, capture baseline results once for all mutations
+    // In research mode, extract baseline results from metadata once for all mutations
     if (this.fullMatrixResearchMode && this.baselineResults == null) {
-      System.out.println("DEBUG: MutationTestWorker - fullMatrixResearchMode enabled, capturing baseline results");
-      captureBaselineResults(testSource);
-      System.out.println("DEBUG: MutationTestWorker - baseline capture completed, stored " 
+      System.out.println("DEBUG: MutationTestWorker - fullMatrixResearchMode enabled, extracting baseline results from metadata");
+      extractBaselineResultsFromMetadata();
+      System.out.println("DEBUG: MutationTestWorker - baseline extraction completed, stored " 
                         + (this.baselineResults != null ? this.baselineResults.size() : 0) 
                         + " results");
     }
@@ -135,9 +139,10 @@ public class MutationTestWorker {
     // In research mode, use all tests instead of just covering tests
     final List<TestUnit> relevantTests;
     if (this.fullMatrixResearchMode) {
-      relevantTests = testSource.getAllTests();
+      List<TestUnit> allTests = testSource.getAllTests();
+      relevantTests = orderTestsByTestCaseId(allTests);
       if (DEBUG) {
-        LOG.fine("Research mode: Using all " + relevantTests.size() + " tests for mutation " + mutationId);
+        LOG.fine("Research mode: Using all " + relevantTests.size() + " tests for mutation " + mutationId + " (ordered by tcID)");
       }
     } else {
       relevantTests = testSource.translateTests(mutationDetails.getTestsInOrder());
@@ -242,8 +247,12 @@ public class MutationTestWorker {
       }
       
       // Run tests on mutated code with baseline-aware listener
-      final BaselineAwareMutationTestListener mutatedListener = 
-          new BaselineAwareMutationTestListener(this.baselineResults);
+      final BaselineAwareMutationTestListener mutatedListener;
+      if (this.testCaseMetadata != null && !this.testCaseMetadata.isEmpty()) {
+        mutatedListener = BaselineAwareMutationTestListener.fromTestCaseMetadata(this.testCaseMetadata);
+      } else {
+        mutatedListener = new BaselineAwareMutationTestListener(this.baselineResults);
+      }
       final Pitest mutatedPit = new Pitest(mutatedListener);
       mutatedPit.run(c, relevantTests);
       
@@ -262,47 +271,38 @@ public class MutationTestWorker {
   }
 
   /**
-   * Capture baseline test results once for all mutations in research mode
+   * Extract baseline test results from received metadata in research mode
    */
-  private void captureBaselineResults(final TimeOutDecoratedTestSource testSource) {
-    System.out.println("DEBUG: MutationTestWorker.captureBaselineResults() - Starting baseline capture");
+  private void extractBaselineResultsFromMetadata() {
+    System.out.println("DEBUG: MutationTestWorker.extractBaselineResultsFromMetadata() - Starting baseline extraction from metadata");
     if (DEBUG) {
-      LOG.fine("Capturing baseline results for research mode");
+      LOG.fine("Extracting baseline results from test case metadata for research mode");
     }
     
     try {
-      final List<TestUnit> allTests = testSource.getAllTests();
-      System.out.println("DEBUG: Found " + allTests.size() + " tests for baseline capture");
+      if (this.testCaseMetadata == null || this.testCaseMetadata.isEmpty()) {
+        System.out.println("DEBUG: No test case metadata available, cannot extract baseline results");
+        LOG.warning("No test case metadata available for research mode");
+        this.baselineResults = new HashMap<>();
+        return;
+      }
+      
       this.baselineResults = new HashMap<>();
-      final CheckTestHasFailedResultListener baselineListener = new CheckTestHasFailedResultListener(true);
-      final Container c = createNewContainer();
-      final Pitest baselinePit = new Pitest(baselineListener);
       
-      System.out.println("DEBUG: Running baseline tests...");
-      baselinePit.run(c, allTests);
-      System.out.println("DEBUG: Baseline test execution completed");
-      
-      // Record baseline results
-      for (Description passingTest : baselineListener.getSucceedingTests()) {
-        this.baselineResults.put(passingTest.getQualifiedName(), true);
-        System.out.println("DEBUG: Baseline test passed: " + passingTest.getQualifiedName());
+      // Extract baseline results from metadata
+      for (Map.Entry<String, TestCaseMetadata> entry : this.testCaseMetadata.entrySet()) {
+        String testName = entry.getKey();
+        TestCaseMetadata metadata = entry.getValue();
+        this.baselineResults.put(testName, metadata.isBaselinePassed());
+        
+        System.out.println("DEBUG: Baseline test " + (metadata.isBaselinePassed() ? "passed" : "failed") + ": " + testName);
         if (DEBUG) {
-          LOG.fine("Baseline test passed: " + passingTest.getQualifiedName());
-        }
-      }
-      for (Description failingTest : baselineListener.getFailingTests()) {
-        this.baselineResults.put(failingTest.getQualifiedName(), false);
-        System.out.println("DEBUG: Baseline test failed: " + failingTest.getQualifiedName());
-        if (DEBUG) {
-          LOG.fine("Baseline test failed: " + failingTest.getQualifiedName());
+          LOG.fine("Baseline test " + (metadata.isBaselinePassed() ? "passed" : "failed") + ": " + testName);
         }
       }
       
-      // Store baseline results in file-based holder for CSV reporter access
+      // Store baseline results in holder for other components if needed
       BaselineResultsHolder.setBaselineResults(this.baselineResults);
-      
-      // Also store in file-based holder for cross-thread access
-      BaselineResultsFileHolder.storeBaselineResults(this.baselineResults);
       
       // Debug: Verify baseline results are stored
       System.out.println("DEBUG: Stored baseline results in holder, size: " + this.baselineResults.size());
@@ -310,14 +310,21 @@ public class MutationTestWorker {
       System.out.println("DEBUG: Verified holder has results: " + BaselineResultsHolder.hasBaselineResults());
       
       if (DEBUG) {
-        LOG.fine("Captured baseline: " + this.baselineResults.size() + " tests, "
-                + baselineListener.getSucceedingTests().size() + " passing, "
-                + baselineListener.getFailingTests().size() + " failing");
+        long passingCount = this.baselineResults.values().stream().mapToLong(b -> b ? 1 : 0).sum();
+        long failingCount = this.baselineResults.size() - passingCount;
+        LOG.fine("Extracted baseline: " + this.baselineResults.size() + " tests, "
+                + passingCount + " passing, "
+                + failingCount + " failing");
       }
     } catch (final Exception ex) {
+      System.out.println("DEBUG: Error extracting baseline results from metadata: " + ex.getMessage());
+      LOG.log(Level.WARNING, "Error extracting baseline results from metadata", ex);
+      this.baselineResults = new HashMap<>();
       throw translateCheckedException(ex);
     }
   }
+
+
 
   /**
    * Save the mutated bytecode to disk for analysis purposes.
@@ -464,7 +471,12 @@ public class MutationTestWorker {
       }
       
       // Use baseline-aware listener with captured baseline results
-      final BaselineAwareMutationTestListener baselineListener = new BaselineAwareMutationTestListener(this.baselineResults);
+      final BaselineAwareMutationTestListener baselineListener;
+      if (this.testCaseMetadata != null && !this.testCaseMetadata.isEmpty()) {
+        baselineListener = BaselineAwareMutationTestListener.fromTestCaseMetadata(this.testCaseMetadata);
+      } else {
+        baselineListener = new BaselineAwareMutationTestListener(this.baselineResults);
+      }
       final Pitest pit = new Pitest(baselineListener);
       
       // Run tests on the mutated code
@@ -523,9 +535,54 @@ public class MutationTestWorker {
     List<String> survivingTests = listener.getSurvivingTests();
     List<String> coveredTests = relevantTests.stream()
         .map(t -> t.getDescription().getQualifiedName()).collect(Collectors.toList());
+    List<DetailedMutationTestResult> detailedResults = listener.getTestResults();
 
     return new MutationStatusTestPair(listener.getNumberOfTestsRun(),
-        listener.getOverallStatus(), killingTests, survivingTests, coveredTests);
+        listener.getOverallStatus(), killingTests, survivingTests, coveredTests, detailedResults);
+  }
+
+  /**
+   * Order tests by their test case ID when test case metadata is available.
+   * This ensures tests are executed in the same order as they were initiated.
+   * @param tests the list of tests to order
+   * @return ordered list of tests
+   */
+  private List<TestUnit> orderTestsByTestCaseId(final List<TestUnit> tests) {
+    if (this.testCaseMetadata == null || this.testCaseMetadata.isEmpty()) {
+      return tests; // Return original order if no metadata
+    }
+    
+    // Create a map of test name to TestUnit for easy lookup
+    Map<String, TestUnit> testMap = new HashMap<>();
+    for (TestUnit test : tests) {
+      testMap.put(test.getDescription().getQualifiedName(), test);
+    }
+    
+    // Create ordered list based on tcID
+    List<TestUnit> orderedTests = new ArrayList<>();
+    
+    // First, add tests that have metadata in tcID order
+    this.testCaseMetadata.entrySet().stream()
+        .sorted(Map.Entry.comparingByValue((m1, m2) -> Integer.compare(m1.getTcID(), m2.getTcID())))
+        .forEach(entry -> {
+          String testName = entry.getKey();
+          TestUnit test = testMap.get(testName);
+          if (test != null) {
+            orderedTests.add(test);
+            testMap.remove(testName); // Remove from map to avoid duplicates
+          }
+        });
+    
+    // Add any remaining tests that don't have metadata
+    orderedTests.addAll(testMap.values());
+    
+    if (DEBUG) {
+      LOG.fine("Ordered " + orderedTests.size() + " tests by tcID. " 
+              + (tests.size() - testMap.size()) + " tests had metadata, " 
+              + testMap.size() + " tests did not.");
+    }
+    
+    return orderedTests;
   }
 
 }

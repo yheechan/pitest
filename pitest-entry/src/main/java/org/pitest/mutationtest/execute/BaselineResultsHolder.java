@@ -17,6 +17,10 @@ public class BaselineResultsHolder {
     private static volatile Map<String, Boolean> baselineResults = new HashMap<>();
     private static volatile Set<String> failingTestLines = new HashSet<>();
     private static volatile Map<String, Set<Integer>> failingTestLinesByClass = new HashMap<>();
+    private static volatile Map<String, Integer> testCaseIdMapping = new HashMap<>();
+    
+    // Complete test case metadata for research mode
+    private static volatile Map<String, TestCaseMetadata> testCaseMetadata = new HashMap<>();
 
     /**
      * Set baseline results 
@@ -84,11 +88,67 @@ public class BaselineResultsHolder {
     }
 
     /**
+     * Set test case ID mapping (test name -> tcID)
+     */
+    public static synchronized void setTestCaseIdMapping(Map<String, Integer> mapping) {
+        testCaseIdMapping.clear();
+        if (mapping != null) {
+            testCaseIdMapping.putAll(mapping);
+        }
+        System.out.println("DEBUG: BaselineResultsHolder.setTestCaseIdMapping called with " 
+            + (mapping != null ? mapping.size() : 0) + " test mappings");
+    }
+
+    /**
+     * Get test case ID mapping
+     */
+    public static synchronized Map<String, Integer> getTestCaseIdMapping() {
+        System.out.println("DEBUG: BaselineResultsHolder.getTestCaseIdMapping called, returning " 
+            + testCaseIdMapping.size() + " test mappings");
+        return new HashMap<>(testCaseIdMapping);
+    }
+
+    /**
+     * Get test case ID for a specific test name
+     */
+    public static synchronized Integer getTestCaseId(String testName) {
+        return testCaseIdMapping.get(testName);
+    }
+
+    /**
      * Clear all data
      */
     public static synchronized void clearAll() {
         baselineResults.clear();
         failingTestLines.clear();
         failingTestLinesByClass.clear();
+        testCaseIdMapping.clear();
+        testCaseMetadata.clear();
+    }
+
+    /**
+     * Set complete test case metadata for research mode
+     */
+    public static synchronized void setTestCaseMetadata(Map<String, TestCaseMetadata> metadata) {
+        testCaseMetadata.clear();
+        if (metadata != null) {
+            testCaseMetadata.putAll(metadata);
+            System.out.println("DEBUG: BaselineResultsHolder.setTestCaseMetadata - stored " + metadata.size() + " test case metadata entries");
+        }
+    }
+
+    /**
+     * Get complete test case metadata for research mode
+     */
+    public static synchronized Map<String, TestCaseMetadata> getTestCaseMetadata() {
+        System.out.println("DEBUG: BaselineResultsHolder.getTestCaseMetadata - returning " + testCaseMetadata.size() + " test case metadata entries");
+        return new HashMap<>(testCaseMetadata);
+    }
+
+    /**
+     * Check if test case metadata is available
+     */
+    public static synchronized boolean hasTestCaseMetadata() {
+        return !testCaseMetadata.isEmpty();
     }
 }

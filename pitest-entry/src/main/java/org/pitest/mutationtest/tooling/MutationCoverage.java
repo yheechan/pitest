@@ -64,8 +64,6 @@ import org.pitest.mutationtest.statistics.MutationStatistics;
 import org.pitest.mutationtest.statistics.MutationStatisticsListener;
 import org.pitest.mutationtest.statistics.Score;
 import org.pitest.mutationtest.verify.BuildMessage;
-import org.pitest.mutationtest.execute.BaselineResultsHolder;
-import org.pitest.mutationtest.execute.BaselineResultsFileHolder;
 import org.pitest.util.Log;
 import org.pitest.util.StringUtil;
 import org.pitest.util.Timings;
@@ -181,19 +179,21 @@ public class MutationCoverage {
     LOG.fine("Free Memory after coverage calculation "
     + (runtime.freeMemory() / MB) + " mb");
     
+    // Initialize testCaseMetadata
+    Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> testCaseMetadata = new HashMap<>();
+    
     // Capture baseline results in main process for fullMatrixResearchMode
     if (this.data.isFullMatrixResearchMode()) {
-      // Capture test case results from coverage data (leverages already executed tests)
-      captureTestCaseResultsFromCoverageData(coverageData);
-
-      captureBaselineResultsInMainProcess(coverageData);
+      // Capture both test case results and baseline results from coverage data in one pass
+      testCaseMetadata = captureBaselineAndTestResultsFromCoverageData(coverageData);
+      
       // Save original bytecode once in main process for all classes
       saveOriginalBytecodeInMainProcess();
     }
 
     this.timings.registerStart(Timings.Stage.BUILD_MUTATION_TESTS);
     final List<MutationAnalysisUnit> tus = buildMutationTests(coverageData, history,
-            engine, args, allInterceptors());
+            engine, args, allInterceptors(), testCaseMetadata);
     this.timings.registerEnd(Timings.Stage.BUILD_MUTATION_TESTS);
 
     LOG.info("Created " + tus.size() + " mutation test units" );
@@ -206,7 +206,7 @@ public class MutationCoverage {
     ReportCoverage modifiedCoverage = transformCoverage(coverageData);
     final MutationStatisticsListener stats = new MutationStatisticsListener();
     final List<MutationResultListener> config = createConfig(t0, modifiedCoverage, history,
-                stats, engine, issues);
+                stats, engine, issues, testCaseMetadata);
 
     final MutationAnalysisExecutor mae = new MutationAnalysisExecutor(
         numberOfThreads(), resultInterceptor(), config);
@@ -260,7 +260,7 @@ public class MutationCoverage {
     // an initial run here we are able to skip coverage generation when no mutants
     // are found, e.g if pitest is being run against diffs.
     this.timings.registerStart(Timings.Stage.MUTATION_PRE_SCAN);
-    List<MutationAnalysisUnit> mutants = buildMutationTests(new NoCoverage(), new NullHistory(), engine, args, noReportsOrFilters());
+    List<MutationAnalysisUnit> mutants = buildMutationTests(new NoCoverage(), new NullHistory(), engine, args, noReportsOrFilters(), new HashMap<>());
     this.timings.registerEnd(Timings.Stage.MUTATION_PRE_SCAN);
     return mutants;
   }
@@ -291,14 +291,15 @@ public class MutationCoverage {
                                                     ReportCoverage coverageData,
                                                     History history,
                                                     MutationStatisticsListener stats,
-                                                    MutationEngine engine, List<BuildMessage> issues) {
+                                                    MutationEngine engine, List<BuildMessage> issues,
+                                                    Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> testCaseMetadata) {
     final List<MutationResultListener> ls = new ArrayList<>();
 
     ls.add(stats);
 
     final ListenerArguments args = new ListenerArguments(
         this.strategies.output(), coverageData, new SmartSourceLocator(
-            data.getSourcePaths(), this.data.getInputEncoding()), engine, t0, this.data.isFullMutationMatrix(), data, issues);
+            data.getSourcePaths(), this.data.getInputEncoding()), engine, t0, this.data.isFullMutationMatrix(), data, issues, testCaseMetadata);
 
     final MutationResultListener mutationReportListener = this.strategies
         .listenerFactory().getListener(this.data.getFreeFormProperties(), args);
@@ -361,7 +362,8 @@ public class MutationCoverage {
                                                         History history,
                                                         MutationEngine engine,
                                                         EngineArguments args,
-                                                        Predicate<MutationInterceptor> interceptorFilter) {
+                                                        Predicate<MutationInterceptor> interceptorFilter,
+                                                        Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> testCaseMetadata) {
 
     final MutationConfig mutationConfig = new MutationConfig(engine, coverage()
         .getLaunchOptions());
@@ -381,12 +383,12 @@ public class MutationCoverage {
 
     final MutationSource source = new MutationSource(mutationConfig, testPrioritiser, bas, interceptor);
 
-
     final WorkerFactory wf = new WorkerFactory(this.baseDir, coverage()
         .getConfiguration(), mutationConfig, args,
         new PercentAndConstantTimeoutStrategy(this.data.getTimeoutFactor(),
             this.data.getTimeoutConstant()), this.data.getVerbosity(), this.data.isFullMutationMatrix(),
-            this.data.isFullMatrixResearchMode(), this.data.getClassPath().getLocalClassPath(), this.data.getReportDir());
+            this.data.isFullMatrixResearchMode(), this.data.getClassPath().getLocalClassPath(), this.data.getReportDir(),
+            testCaseMetadata);
 
     final MutationGrouper grouper = this.settings.getMutationGrouper().makeFactory(
         this.data.getFreeFormProperties(), this.code,
@@ -408,17 +410,56 @@ public class MutationCoverage {
   }
 
   /**
-   * Capture baseline test results in the main process for fullMatrixResearchMode.
-   * This extracts test pass/fail status from the coverage data that was just calculated.
-   * Records which lines are covered by failing tests and which lines are covered by passing tests
-   * for mutation filtering and analysis.
+   * Capture both baseline test results and test case results in a single pass for fullMatrixResearchMode.
+   * This method efficiently extracts all necessary data from coverage in one iteration:
+   * - Test pass/fail status and exception details for CSV output
+   * - Line coverage information for mutation filtering
+   * - Baseline results for child processes
    */
-  private void captureBaselineResultsInMainProcess(CoverageDatabase coverageData) {
+  private Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> captureBaselineAndTestResultsFromCoverageData(CoverageDatabase coverageData) {
+    String reportDir = this.data.getReportDir();
+    if (reportDir == null || reportDir.isEmpty()) {
+      LOG.fine("No report directory configured, skipping baseline and test results capture");
+      return new HashMap<>();
+    }
+    
     try {
-      LOG.info("Capturing baseline test results for fullMatrixResearchMode");
+      LOG.info("Capturing baseline test results and test case results for fullMatrixResearchMode");
       
+      // Access the CoverageData object to get test results
+      if (!(coverageData instanceof CoverageData)) {
+        LOG.warning("Coverage data is not a CoverageData instance, cannot extract test results");
+        createEmptyTestResultsCSV(reportDir);
+        return new HashMap<>();
+      }
+      
+      CoverageData cd = (CoverageData) coverageData;
+      
+      // Get all coverage results once to avoid multiple calls
+      List<org.pitest.coverage.CoverageResult> allCoverageResults = cd.getAllCoverageResults();
+      
+      // === Single pass through coverage data to extract all test information ===
+      
+      // Collect all unique tests from coverage data
+      Set<TestInfo> allTests = new HashSet<>();
+      for (BlockCoverage blockCov : cd.createCoverage()) {
+        Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockCov.getBlock());
+        allTests.addAll(testsForBlock);
+      }
+      
+      if (allTests.isEmpty()) {
+        LOG.warning("No test results found in coverage data");
+        createEmptyTestResultsCSV(reportDir);
+        return new HashMap<>();
+      }
+      
+      // Get failing test descriptions and names
+      Set<String> failingTestNames = cd.getFailingTestDescriptions().stream()
+          .map(desc -> desc.getQualifiedName())
+          .collect(java.util.stream.Collectors.toSet());
+      
+      // === Prepare data structures for baseline results ===
       Map<String, Boolean> baselineResults = new HashMap<>();
-      Set<String> failingTestNames = new HashSet<>();
       Set<String> passingTestNames = new HashSet<>();
       Set<Integer> failingTestLines = new HashSet<>();
       Set<Integer> passingTestLines = new HashSet<>();
@@ -427,145 +468,141 @@ public class MutationCoverage {
       Set<String> failingTestClassLines = new HashSet<>();
       Set<String> passingTestClassLines = new HashSet<>();
       
-      // Access the CoverageData object to get test results
-      if (coverageData instanceof CoverageData) {
-        CoverageData cd = (CoverageData) coverageData;
+      // === Process each test to build baseline results ===
+      for (TestInfo testInfo : allTests) {
+        String testName = testInfo.getName();
+        boolean testPassed = !failingTestNames.contains(testName);
         
-        // First, collect all unique tests from all block coverage
-        Set<TestInfo> allTests = new HashSet<>();
-        for (BlockCoverage blockCov : cd.createCoverage()) {
-          Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockCov.getBlock());
-          allTests.addAll(testsForBlock);
+        baselineResults.put(testName, testPassed);
+        
+        if (!testPassed) {
+          LOG.info("Detected failing test: " + testName);
+        } else {
+          passingTestNames.add(testName);
+          LOG.fine("Detected passing test: " + testName);
         }
+      }
+      
+      // === Analyze line coverage by test status ===
+      for (ClassName className : this.code.getCodeUnderTestNames()) {
+        Set<ClassLine> coveredLines = cd.getCoveredLines(className);
+        Set<Integer> failingLines = new HashSet<>();
+        Set<Integer> passingLines = new HashSet<>();
         
-        // Get failing test names from the failing test descriptions
-        Set<String> failingTestDescs = cd.getFailingTestDescriptions().stream()
-            .map(desc -> desc.getQualifiedName())
-            .collect(java.util.stream.Collectors.toSet());
-        
-        LOG.info("Found failing test descriptions: " + failingTestDescs);
-        
-        // Get failing test names
-        for (TestInfo testInfo : allTests) {
-          String testName = testInfo.getName();
+        for (ClassLine line : coveredLines) {
+          int lineNumber = line.getLineNumber();
+          boolean coveredByFailingTest = false;
+          boolean coveredByPassingTest = false;
           
-          // A test is considered failed if it's in the failing test descriptions
-          boolean testPassed = !cd.getFailingTestDescriptions().stream()
-              .anyMatch(desc -> desc.getQualifiedName().equals(testName));
-          
-          baselineResults.put(testName, testPassed);
-          
-          if (!testPassed) {
-            failingTestNames.add(testName);
-            LOG.info("Detected failing test: " + testName);
-          } else {
-            passingTestNames.add(testName);
-            LOG.fine("Detected passing test: " + testName);
-          }
-        }
-        
-        // Now collect lines covered by failing and passing tests using block level coverage
-        for (ClassName className : this.code.getCodeUnderTestNames()) {
-          Set<ClassLine> coveredLines = cd.getCoveredLines(className);
-          Set<Integer> failingLines = new HashSet<>();
-          Set<Integer> passingLines = new HashSet<>();
-          
-          for (ClassLine line : coveredLines) {
-            int lineNumber = line.getLineNumber();
-            boolean coveredByFailingTest = false;
-            boolean coveredByPassingTest = false;
+          // Check all block coverage to find blocks that cover this specific line
+          for (BlockCoverage blockCov : cd.createCoverage()) {
+            BlockLocation blockLocation = blockCov.getBlock();
             
-            // Check all block coverage to find blocks that cover this specific line
-            for (BlockCoverage blockCov : cd.createCoverage()) {
-              BlockLocation blockLocation = blockCov.getBlock();
+            // Only check blocks from the same class
+            if (blockLocation.getLocation().getClassName().equals(className)) {
+              // Get the lines covered by this block
+              Set<Integer> blockLines = getBlockLines(cd, blockLocation);
               
-              // Only check blocks from the same class
-              if (blockLocation.getLocation().getClassName().equals(className)) {
-                // Get the lines covered by this block using reflection to access LegacyClassCoverage
-                Set<Integer> blockLines = getBlockLines(cd, blockLocation);
+              // Check if this block covers the current line
+              if (blockLines.contains(lineNumber)) {
+                // Get the tests that cover this specific block
+                Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockLocation);
                 
-                // Check if this block covers the current line
-                if (blockLines.contains(lineNumber)) {
-                  // Get the tests that cover this specific block
-                  Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockLocation);
-                  
-                  // Check if any of the tests for this block are failing tests
-                  boolean blockCoveredByFailingTest = testsForBlock.stream()
-                      .anyMatch(test -> failingTestDescs.contains(test.getName()));
-                  
-                  // Check if any of the tests for this block are passing tests
-                  boolean blockCoveredByPassingTest = testsForBlock.stream()
-                      .anyMatch(test -> !failingTestDescs.contains(test.getName()));
-                  
-                  if (blockCoveredByFailingTest) {
-                    coveredByFailingTest = true;
-                  }
-                  
-                  if (blockCoveredByPassingTest) {
-                    coveredByPassingTest = true;
-                  }
-                  
-                  // Continue checking all blocks to get complete coverage
+                // Check if any of the tests for this block are failing tests
+                boolean blockCoveredByFailingTest = testsForBlock.stream()
+                    .anyMatch(test -> failingTestNames.contains(test.getName()));
+                
+                // Check if any of the tests for this block are passing tests
+                boolean blockCoveredByPassingTest = testsForBlock.stream()
+                    .anyMatch(test -> !failingTestNames.contains(test.getName()));
+                
+                if (blockCoveredByFailingTest) {
+                  coveredByFailingTest = true;
+                }
+                
+                if (blockCoveredByPassingTest) {
+                  coveredByPassingTest = true;
                 }
               }
             }
-            
-            if (coveredByFailingTest) {
-              failingTestLines.add(lineNumber);
-              failingLines.add(lineNumber);
-              failingTestClassLines.add(className.asJavaName() + ":" + lineNumber);
-              
-              LOG.fine("Line " + lineNumber + " in class " + className + " is covered by failing test");
-            }
-            
-            if (coveredByPassingTest) {
-              passingTestLines.add(lineNumber);
-              passingLines.add(lineNumber);
-              passingTestClassLines.add(className.asJavaName() + ":" + lineNumber);
-              
-              LOG.fine("Line " + lineNumber + " in class " + className + " is covered by passing test");
-            }
           }
           
-          if (!failingLines.isEmpty()) {
-            failingTestLinesByClass.put(className.asJavaName(), failingLines);
+          if (coveredByFailingTest) {
+            failingTestLines.add(lineNumber);
+            failingLines.add(lineNumber);
+            failingTestClassLines.add(className.asJavaName() + ":" + lineNumber);
+            LOG.fine("Line " + lineNumber + " in class " + className + " is covered by failing test");
           }
           
-          if (!passingLines.isEmpty()) {
-            passingTestLinesByClass.put(className.asJavaName(), passingLines);
+          if (coveredByPassingTest) {
+            passingTestLines.add(lineNumber);
+            passingLines.add(lineNumber);
+            passingTestClassLines.add(className.asJavaName() + ":" + lineNumber);
+            LOG.fine("Line " + lineNumber + " in class " + className + " is covered by passing test");
           }
         }
         
-        // Store baseline results in both holders for access by child processes and CSV reporter
-        BaselineResultsHolder.setBaselineResults(baselineResults);
-        BaselineResultsFileHolder.storeBaselineResults(baselineResults);
-        
-        LOG.info("Captured baseline results for " + baselineResults.size() + " tests");
-        LOG.info("Found " + failingTestNames.size() + " failing tests");
-        LOG.info("Found " + passingTestNames.size() + " passing tests");
-        LOG.info("Found " + failingTestLines.size() + " lines covered by failing tests");
-        LOG.info("Found " + passingTestLines.size() + " lines covered by passing tests");
-        LOG.info("Failing test lines by class: " + failingTestLinesByClass);
-        LOG.info("Passing test lines by class: " + passingTestLinesByClass);
-        LOG.info("Failing test class:lines (" + failingTestClassLines.size() + " total): " + failingTestClassLines);
-        LOG.info("Passing test class:lines (" + passingTestClassLines.size() + " total): " + passingTestClassLines);
-        
-        // Save failing test lines data to BaselineResultsHolder for use by FailingTestCoverageFilter
-        try {
-            org.pitest.mutationtest.execute.BaselineResultsHolder.setFailingTestLines(failingTestClassLines);
-            org.pitest.mutationtest.execute.BaselineResultsHolder.setFailingTestLinesByClass(failingTestLinesByClass);
-            LOG.info("Saved failing test lines data to BaselineResultsHolder");
-        } catch (Exception e) {
-            LOG.warning("Failed to save failing test lines to BaselineResultsHolder: " + e.getMessage());
+        if (!failingLines.isEmpty()) {
+          failingTestLinesByClass.put(className.asJavaName(), failingLines);
         }
         
-      } else {
-        LOG.warning("Coverage data is not a CoverageData instance, cannot extract test results");
+        if (!passingLines.isEmpty()) {
+          passingTestLinesByClass.put(className.asJavaName(), passingLines);
+        }
       }
       
+      // === Store test case ID mapping and metadata ===
+      Map<String, Integer> testCaseIdMapping = createTestCaseIdMapping(allTests);
+      
+      // Create complete test case metadata
+      Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> completeMetadata = 
+          createCompleteTestCaseMetadata(allTests, failingTestNames, testCaseIdMapping, allCoverageResults);
+      
+      // Save failing test lines data to BaselineResultsHolder for use by FailingTestCoverageFilter
+      try {
+          org.pitest.mutationtest.execute.BaselineResultsHolder.setFailingTestLines(failingTestClassLines);
+          org.pitest.mutationtest.execute.BaselineResultsHolder.setFailingTestLinesByClass(failingTestLinesByClass);
+          LOG.info("Saved failing test lines data to BaselineResultsHolder");
+      } catch (Exception e) {
+          LOG.warning("Failed to save failing test lines to BaselineResultsHolder: " + e.getMessage());
+      }
+      
+      // === Write individual test result files in new format ===
+      java.nio.file.Path baselineTestResultsDir = java.nio.file.Paths.get(reportDir, "baselineTestResults");
+      java.nio.file.Files.createDirectories(baselineTestResultsDir);
+      
+      writeIndividualTestResultFiles(baselineTestResultsDir, allTests, failingTestNames, allCoverageResults);
+      
+      // === Log summary ===
+      LOG.info("Captured baseline results for " + baselineResults.size() + " tests");
+      LOG.info("Found " + failingTestNames.size() + " failing tests");
+      LOG.info("Found " + passingTestNames.size() + " passing tests");
+      LOG.info("Found " + failingTestLines.size() + " lines covered by failing tests");
+      LOG.info("Found " + passingTestLines.size() + " lines covered by passing tests");
+      LOG.info("Failing test lines by class: " + failingTestLinesByClass);
+      LOG.info("Passing test lines by class: " + passingTestLinesByClass);
+      LOG.info("Successfully captured test case results to: " + baselineTestResultsDir);
+      
+      return completeMetadata;
+      
     } catch (Exception e) {
-      LOG.warning("Failed to capture baseline results: " + e.getMessage());
+      LOG.severe("Failed to capture baseline and test results: " + e.getMessage());
       e.printStackTrace();
+      return new HashMap<>();
+    }
+  }
+  
+  /**
+   * Create empty test results when no tests are found.
+   */
+  private void createEmptyTestResultsCSV(String reportDir) {
+    try {
+      // Create empty baselineTestResults directory
+      java.nio.file.Path baselineTestResultsDir = java.nio.file.Paths.get(reportDir, "baselineTestResults");
+      java.nio.file.Files.createDirectories(baselineTestResultsDir);
+      LOG.info("Created empty baselineTestResults directory: " + baselineTestResultsDir);
+    } catch (Exception e) {
+      LOG.warning("Failed to create empty test results: " + e.getMessage());
     }
   }
 
@@ -742,142 +779,6 @@ public class MutationCoverage {
     }
   }
   
-  /**
-   * Extract test case results from coverage data and save to CSV file.
-   * This method extracts test execution times and outcomes that were already
-   * recorded during coverage calculation, avoiding redundant test execution.
-   */
-  private void captureTestCaseResultsFromCoverageData(CoverageDatabase coverageData) {
-    String reportDir = this.data.getReportDir();
-    if (reportDir == null || reportDir.isEmpty()) {
-      LOG.fine("No report directory configured, skipping test case results capture");
-      return;
-    }
-    
-    try {
-      LOG.info("Extracting test case results from coverage data");
-      
-      // Create baselineResults directory
-      java.nio.file.Path baselineDir = java.nio.file.Paths.get(reportDir, "baselineResults");
-      java.nio.file.Files.createDirectories(baselineDir);
-      
-      // Create CSV file for test case results
-      java.nio.file.Path csvFile = baselineDir.resolve("tcs_results.csv");
-      
-      if (!(coverageData instanceof CoverageData)) {
-        LOG.warning("Coverage data is not of expected type CoverageData, creating empty CSV file");
-        writeEmptyTestResultsCSV(csvFile);
-        return;
-      }
-      
-      CoverageData cd = (CoverageData) coverageData;
-      
-      // Extract test results directly from coverage data
-      Set<TestInfo> allTests = new HashSet<>();
-      for (BlockCoverage blockCov : cd.createCoverage()) {
-        Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockCov.getBlock());
-        allTests.addAll(testsForBlock);
-      }
-      
-      if (allTests.isEmpty()) {
-        LOG.warning("No test results found in coverage data - creating empty CSV file");
-        writeEmptyTestResultsCSV(csvFile);
-        return;
-      }
-      
-      // Get failing test names from coverage data
-      Set<String> failingTestNames = cd.getFailingTestDescriptions().stream()
-          .map(org.pitest.testapi.Description::getQualifiedName)
-          .collect(java.util.stream.Collectors.toSet());
-      
-      LOG.info("Found " + allTests.size() + " unique tests in coverage data, " + failingTestNames.size() + " failing");
-      
-      // Write results directly to CSV
-      writeTestResultsToCSV(csvFile, allTests, failingTestNames, cd);
-      
-      LOG.info("Successfully captured " + allTests.size() + " test case results from coverage data to: " + csvFile);
-      
-    } catch (Exception e) {
-      LOG.severe("Failed to capture test case results from coverage data: " + e.getMessage());
-      e.printStackTrace();
-    }
-  }
-  
-  /**
-   * Write test results to CSV file using coverage data and detailed test results when available.
-   */
-  private void writeTestResultsToCSV(java.nio.file.Path csvFile, Set<TestInfo> allTests, Set<String> failingTestNames, CoverageData cd) throws java.io.IOException {
-    try (java.io.PrintWriter writer = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(csvFile))) {
-      // Write CSV header
-      writer.println("test_name,result,execution_time_ms,exception_type,exception_message,stack_trace");
-      
-      // Sort tests by name for consistent output
-      List<TestInfo> sortedTests = allTests.stream()
-          .sorted((t1, t2) -> t1.getName().compareTo(t2.getName()))
-          .collect(java.util.stream.Collectors.toList());
-      
-      LOG.info("Writing test results to CSV with exception details from coverage data");
-      
-      // Write test results
-      for (TestInfo testInfo : sortedTests) {
-        String testName = testInfo.getName();
-        boolean passed = !failingTestNames.contains(testName);
-        double durationMillis = testInfo.getTime(); // TestInfo.getTime() returns execution time in milliseconds
-        String result = passed ? "PASS" : "FAIL";
-        
-        String exceptionType = "";
-        String exceptionMessage = "";
-        String stackTrace = "";
-        
-        // Get exception details from stored CoverageResult objects
-        if (!passed) {
-          // Find the corresponding CoverageResult for this test
-          List<org.pitest.coverage.CoverageResult> coverageResults = cd.getAllCoverageResults();
-          for (org.pitest.coverage.CoverageResult cr : coverageResults) {
-            if (cr.getTestUnitDescription().getQualifiedName().equals(testName)) {
-              if (cr.getExceptionType() != null && !cr.getExceptionType().isEmpty()) {
-                exceptionType = cr.getExceptionType();
-              } else {
-                exceptionType = "TestFailure";
-              }
-              
-              if (cr.getExceptionMessage() != null && !cr.getExceptionMessage().isEmpty()) {
-                exceptionMessage = cr.getExceptionMessage();
-              } else {
-                exceptionMessage = "Test failed during baseline execution";
-              }
-              
-              if (cr.getStackTrace() != null && !cr.getStackTrace().isEmpty()) {
-                stackTrace = cr.getStackTrace();
-              } else {
-                stackTrace = "No stack trace available";
-              }
-              break;
-            }
-          }
-          
-          // Fallback if no CoverageResult found
-          if (exceptionType.isEmpty()) {
-            exceptionType = "TestFailure";
-            exceptionMessage = "Test failed during baseline execution";
-            stackTrace = "No stack trace available";
-          }
-        }
-        
-        writer.printf("%s,%s,%.2f,%s,%s,%s%n", 
-            escapeCsvValue(testName),
-            result,
-            durationMillis,
-            escapeCsvValue(exceptionType),
-            escapeCsvValue(exceptionMessage),
-            escapeCsvValue(stackTrace));
-        
-        if (LOG.isLoggable(java.util.logging.Level.FINE)) {
-          LOG.fine("Extracted test result: " + testName + ": " + result + " (" + String.format("%.2f", durationMillis) + "ms)");
-        }
-      }
-    }
-  }
   
   /**
    * Escape CSV values to handle commas, quotes, and newlines.
@@ -894,19 +795,192 @@ public class MutationCoverage {
     
     return value;
   }
-  
+
   /**
-   * Write an empty CSV file with proper headers when no tests are found.
+   * Create a consistent test case ID mapping based on sorted test names.
+   * This ensures the same tcID is assigned to each test across all runs.
    */
-  private void writeEmptyTestResultsCSV(java.nio.file.Path csvFile) throws java.io.IOException {
-    try (java.io.PrintWriter writer = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(csvFile, 
-            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING))) {
-      // Write CSV header
-      writer.println("test_name,result,execution_time_ms,exception_type,exception_message,stack_trace");
-      // No data rows since no tests were found
+  private Map<String, Integer> createTestCaseIdMapping(Set<TestInfo> allTests) {
+    // Sort tests by name to ensure consistent ordering
+    List<TestInfo> sortedTests = allTests.stream()
+        .sorted((t1, t2) -> t1.getName().compareTo(t2.getName()))
+        .collect(java.util.stream.Collectors.toList());
+    
+    Map<String, Integer> mapping = new HashMap<>();
+    for (int tcID = 0; tcID < sortedTests.size(); tcID++) {
+      String testName = sortedTests.get(tcID).getName();
+      mapping.put(testName, tcID);
     }
-    LOG.info("Created empty test results CSV file: " + csvFile);
+    
+    LOG.info("Created test case ID mapping for " + mapping.size() + " tests");
+    return mapping;
   }
   
-
+  /**
+   * Create complete test case metadata from coverage data.
+   * This combines all the information needed by mutation minions into a single structure.
+   */
+  private Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> createCompleteTestCaseMetadata(
+      Set<TestInfo> allTests, Set<String> failingTestNames, Map<String, Integer> testCaseIdMapping, List<org.pitest.coverage.CoverageResult> allCoverageResults) {
+    
+    Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> metadata = new HashMap<>();
+    
+    LOG.info("Creating complete test case metadata for " + allTests.size() + " tests");
+    
+    for (TestInfo testInfo : allTests) {
+      String testName = testInfo.getName();
+      Integer tcID = testCaseIdMapping.get(testName);
+      boolean baselinePassed = !failingTestNames.contains(testName);
+      double executionTimeMs = testInfo.getTime();
+      
+      String exceptionType = "None";
+      String exceptionMessage = "None";
+      String stackTrace = "None";
+      
+      // Extract exception details from coverage data if test failed
+      if (!baselinePassed) {
+        // Find the corresponding CoverageResult for this test
+        for (org.pitest.coverage.CoverageResult cr : allCoverageResults) {
+          if (cr.getTestUnitDescription().getQualifiedName().equals(testName)) {
+            if (cr.getExceptionType() != null && !cr.getExceptionType().isEmpty() && !"None".equals(cr.getExceptionType())) {
+              exceptionType = cr.getExceptionType();
+            }
+            
+            if (cr.getExceptionMessage() != null && !cr.getExceptionMessage().isEmpty() && !"None".equals(cr.getExceptionMessage())) {
+              exceptionMessage = cr.getExceptionMessage();
+            }
+            
+            if (cr.getStackTrace() != null && !cr.getStackTrace().isEmpty() && !"None".equals(cr.getStackTrace())) {
+              stackTrace = cr.getStackTrace();
+            }
+            break;
+          }
+        }
+      }
+      
+      // Create the complete metadata object
+      org.pitest.mutationtest.execute.TestCaseMetadata tcMetadata = 
+          new org.pitest.mutationtest.execute.TestCaseMetadata(
+              tcID != null ? tcID : -1, testName, baselinePassed, 
+              exceptionType, exceptionMessage, stackTrace, executionTimeMs);
+      
+      metadata.put(testName, tcMetadata);
+      
+      if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+        LOG.fine("Created metadata for test " + testName + ": tcID=" + tcID + ", passed=" + baselinePassed 
+                + ", executionTime=" + String.format("%.2f", executionTimeMs) + "ms");
+      }
+    }
+    
+    LOG.info("Created complete test case metadata for " + metadata.size() + " tests");
+    return metadata;
+  }
+  
+  /**
+   * Write individual test result files in the mutation results format
+   */
+  private void writeIndividualTestResultFiles(java.nio.file.Path baselineTestResultsDir, Set<TestInfo> allTests, 
+                                            Set<String> failingTestNames, List<org.pitest.coverage.CoverageResult> allCoverageResults) throws java.io.IOException {
+    // Sort tests by name to ensure consistent ordering across runs
+    List<TestInfo> sortedTests = allTests.stream()
+        .sorted((t1, t2) -> t1.getName().compareTo(t2.getName()))
+        .collect(java.util.stream.Collectors.toList());
+    
+    LOG.info("Writing individual test result files for " + sortedTests.size() + " tests");
+    
+    // Write the tcs_outcome.csv file in the refactored directory
+    java.nio.file.Path outcomeFile = baselineTestResultsDir.resolve("tcs_outcome.csv");
+    try (java.io.PrintWriter csvWriter = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(outcomeFile))) {
+      // Write CSV header
+      csvWriter.println("tcID,test_name,result,execution_time_ms");
+      
+      // Write individual test result files and CSV entries
+      for (int tcID = 0; tcID < sortedTests.size(); tcID++) {
+        TestInfo testInfo = sortedTests.get(tcID);
+        String testName = testInfo.getName();
+        boolean passed = !failingTestNames.contains(testName);
+        double durationMillis = testInfo.getTime();
+        String result = passed ? "PASS" : "FAIL";
+        
+        // Write CSV entry
+        csvWriter.printf("%d,%s,%s,%.2f%n", 
+            tcID,
+            escapeCsvValue(testName),
+            result,
+            durationMillis);
+        
+        // Write individual test result file
+        writeBaselineTestResultFile(baselineTestResultsDir, tcID, testName, result, durationMillis, allCoverageResults);
+        
+        if (LOG.isLoggable(java.util.logging.Level.FINE)) {
+          LOG.fine("Created individual test result file for tcID=" + tcID + ": " + testName + " = " + result);
+        }
+      }
+    }
+    
+    LOG.info("Created " + sortedTests.size() + " individual test result files and tcs_outcome.csv in: " + baselineTestResultsDir);
+  }
+  
+  /**
+   * Write a single test result file in the mutation results format
+   */
+  private void writeBaselineTestResultFile(java.nio.file.Path baselineTestResultsDir, int tcID, String testName, 
+                                         String result, double durationMillis, List<org.pitest.coverage.CoverageResult> allCoverageResults) throws java.io.IOException {
+    java.nio.file.Path testResultFile = baselineTestResultsDir.resolve(tcID + "_test_results.txt");
+    
+    // Find the corresponding CoverageResult for this test
+    String exceptionType = "None";
+    String exceptionMessage = "None";
+    String stackTrace = "None";
+    
+    for (org.pitest.coverage.CoverageResult cr : allCoverageResults) {
+      if (cr.getTestUnitDescription().getQualifiedName().equals(testName)) {
+        if (cr.getExceptionType() != null && !cr.getExceptionType().isEmpty() && !"None".equals(cr.getExceptionType())) {
+          exceptionType = cr.getExceptionType();
+        }
+        
+        if (cr.getExceptionMessage() != null && !cr.getExceptionMessage().isEmpty() && !"None".equals(cr.getExceptionMessage())) {
+          exceptionMessage = cr.getExceptionMessage();
+        }
+        
+        if (cr.getStackTrace() != null && !cr.getStackTrace().isEmpty() && !"None".equals(cr.getStackTrace())) {
+          stackTrace = cr.getStackTrace();
+        }
+        break;
+      }
+    }
+    
+    // Write the test result in the mutation results format
+    try (java.io.PrintWriter writer = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(testResultFile,
+            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING))) {
+      
+      // Write test header
+      writer.println("*** test info");
+      writer.println("test_id: " + tcID);
+      writer.println("test_name: " + testName);
+      writer.println("result: " + result);
+      writer.println("execution_time_ms: " + String.format("%.2f", durationMillis));
+      writer.println("...");
+      
+      // Write test result details
+      writer.println("*** test_0");
+      writer.println("test_name: " + testName);
+      writer.println("result: " + result);
+      writer.println("...");
+      
+      writer.println("*** test_0_exception_type");
+      writer.println(exceptionType);
+      writer.println("...");
+      
+      writer.println("*** test_0_exception_message");
+      writer.println(exceptionMessage);
+      writer.println("...");
+      
+      writer.println("*** test_0_stacktrace");
+      writer.println(stackTrace);
+      writer.println("...");
+    }
+    
+    LOG.fine("Created individual test result file for tcID=" + tcID + ": " + testResultFile);
+  }
 }
