@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Manages saving detailed mutation test results to individual files
- * for each mutation in the format: <reportDir>/mutationResults/{mutationId}_test_results.txt
+ * for each mutation in the format: <reportDir>/mutationResults/{mutationId}_mutation_test_results.json
  */
 public class MutationResultsFileManager {
     
@@ -57,63 +57,18 @@ public class MutationResultsFileManager {
         }
         
         try {
-            Path resultFile = mutationResultsDir.resolve(mutationId + "_test_results.txt");
+            // Write JSON format for easier parsing
+            JsonTestResultWriter.writeMutationTestResultJson(
+                mutationResultsDir, mutationId, mutantDescription, testResults);
+            System.out.println("DEBUG: Saved mutation test results JSON to: " 
+                + mutationResultsDir.resolve(mutationId + "_mutation_test_results.json"));
             
-            try (PrintWriter writer = new PrintWriter(Files.newBufferedWriter(resultFile,
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING))) {
-                
-                // Write mutation header
-                writer.println("*** mutation info");
-                writer.println("mutation_id: " + mutationId);
-                writer.println("description: " + (mutantDescription != null ? mutantDescription : "N/A"));
-                writer.println("num_tests_executed: " + (testResults != null ? testResults.size() : 0));
-                writer.println("...");
-                
-                // Write individual test results
-                if (testResults != null && !testResults.isEmpty()) {
-                    for (int i = 0; i < testResults.size(); i++) {
-                        DetailedMutationTestResult testResult = testResults.get(i);
-                        writeTestResult(writer, i, testResult);
-                    }
-                } else {
-                    writer.println("*** no tests executed");
-                    writer.println("No tests were executed for this mutation");
-                    writer.println("...");
-                }
-            }
-            
-            System.out.println("DEBUG: Saved mutation test results to: " + resultFile);
-            
-        } catch (IOException e) {
+        } catch (Exception e) {
             System.err.println("ERROR: Failed to save mutation test results for mutation " + mutationId + ": " + e.getMessage());
             e.printStackTrace();
         }
     }
-    
-    /**
-     * Write a single test result entry
-     */
-    private static void writeTestResult(PrintWriter writer, int testIndex, DetailedMutationTestResult testResult) {
-        writer.println("*** test_" + testIndex);
-        writer.println("test_name: " + (testResult.getTestName() != null ? testResult.getTestName() : "N/A"));
-        writer.println("result: " + (testResult.isPassed() ? "PASS" : "FAIL"));
-        writer.println("...");
-        
-        writer.println("*** test_" + testIndex + "_exception_type");
-        String exceptionType = testResult.getExceptionType();
-        writer.println(exceptionType != null && !exceptionType.isEmpty() ? exceptionType : "None");
-        writer.println("...");
-        
-        writer.println("*** test_" + testIndex + "_exception_message");
-        String exceptionMessage = testResult.getExceptionMessage();
-        writer.println(exceptionMessage != null && !exceptionMessage.isEmpty() ? exceptionMessage : "None");
-        writer.println("...");
-        
-        writer.println("*** test_" + testIndex + "_stacktrace");
-        String stackTrace = testResult.getStackTrace();
-        writer.println(stackTrace != null && !stackTrace.isEmpty() ? stackTrace : "None");
-        writer.println("...");
-    }
+
     
     /**
      * Create a summary CSV file with all mutation results

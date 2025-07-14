@@ -1150,7 +1150,6 @@ public class MutationCoverage {
    */
   private void writeBaselineTestResultFile(java.nio.file.Path baselineTestResultsDir, int tcID, String testName, 
                                          String result, double durationMillis, List<org.pitest.coverage.CoverageResult> allCoverageResults, String bitSequence) throws java.io.IOException {
-    java.nio.file.Path testResultFile = baselineTestResultsDir.resolve(tcID + "_test_results.txt");
     
     // Find the corresponding CoverageResult for this test
     String exceptionType = "None";
@@ -1175,43 +1174,16 @@ public class MutationCoverage {
       }
     }
     
-    // Write the test result in the mutation results format
-    try (java.io.PrintWriter writer = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(testResultFile,
-            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING))) {
-      
-      // Write test header
-      writer.println("*** test info");
-      writer.println("test_id: " + tcID);
-      writer.println("test_name: " + testName);
-      writer.println("result: " + result);
-      writer.println("execution_time_ms: " + String.format("%.2f", durationMillis));
-      writer.println("...");
-      
-      // Write test result details
-      writer.println("*** test_0");
-      writer.println("test_name: " + testName);
-      writer.println("result: " + result);
-      writer.println("...");
-      
-      writer.println("*** test_0_exception_type");
-      writer.println(exceptionType);
-      writer.println("...");
-      
-      writer.println("*** test_0_exception_message");
-      writer.println(exceptionMessage);
-      writer.println("...");
-      
-      writer.println("*** test_0_stacktrace");
-      writer.println(stackTrace);
-      writer.println("...");
-      
-      // Write the bit sequence showing line coverage
-      writer.println("*** line_coverage_bit_sequence");
-      writer.println(bitSequence);
-      writer.println("...");
+    // Write JSON format for easier parsing
+    try {
+      org.pitest.mutationtest.execute.JsonTestResultWriter.writeBaselineTestResultJson(
+          baselineTestResultsDir, tcID, testName, result, durationMillis, 
+          exceptionType, exceptionMessage, stackTrace, bitSequence);
+    } catch (Exception e) {
+      LOG.warning("Failed to write JSON format for baseline test result: " + e.getMessage());
     }
     
-    LOG.fine("Created individual test result file for tcID=" + tcID + ": " + testResultFile + " with bit sequence length " + bitSequence.length());
+    LOG.fine("Created individual test result JSON for tcID=" + tcID + " with bit sequence length " + bitSequence.length());
   }
   
   /**
