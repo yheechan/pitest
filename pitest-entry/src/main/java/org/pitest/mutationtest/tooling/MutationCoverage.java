@@ -571,7 +571,7 @@ public class MutationCoverage {
       java.nio.file.Path baselineTestResultsDir = java.nio.file.Paths.get(reportDir, "baselineTestResults");
       java.nio.file.Files.createDirectories(baselineTestResultsDir);
       
-      writeIndividualTestResultFiles(baselineTestResultsDir, allTests, failingTestNames, allCoverageResults);
+      writeIndividualTestResultFiles(baselineTestResultsDir, allTests, failingTestNames, allCoverageResults, cd);
       
       // === Log summary ===
       LOG.info("Captured baseline results for " + baselineResults.size() + " tests");
@@ -631,6 +631,215 @@ public class MutationCoverage {
     }
   }
 
+  /**
+   * Represents a line with its metadata for mapping to bit sequence.
+   */
+  private static class LineInfo {
+    final String lineId;
+    final String className;
+    final String fileName;
+    final String methodSignature;
+    final int lineNumber;
+
+    LineInfo(String className, String fileName, String methodSignature, int lineNumber) {
+      this.lineId = className + ":" + lineNumber;
+      this.className = className;
+      this.fileName = fileName;
+      this.methodSignature = methodSignature;
+      this.lineNumber = lineNumber;
+    }
+    
+    @Override
+    public String toString() {
+      return "LineInfo{lineId='" + lineId + "', className='" + className 
+             + "', fileName='" + fileName + "', methodSignature='" + methodSignature 
+             + "', lineNumber=" + lineNumber + "}";
+    }
+  }
+
+  /**
+   * Get all lines in all target classes with detailed metadata.
+   * Returns a sorted list of all possible line locations in the codebase with method info.
+   */
+  private List<LineInfo> getAllLinesInTargetCodebaseWithMetadata() {
+    List<LineInfo> allLines = new ArrayList<>();
+    
+    // Iterate through all classes under test
+    for (ClassName className : this.code.getCodeUnderTestNames()) {
+      // Get the class lines information directly from code source
+      Optional<byte[]> classBytes = this.code.fetchClassBytes(className);
+      if (classBytes.isPresent()) {
+        org.pitest.bytecode.analysis.ClassTree classTree = 
+            org.pitest.bytecode.analysis.ClassTree.fromBytes(classBytes.get());
+        
+        String javaClassName = className.asJavaName();
+        String fileName = extractFileName(javaClassName);
+        
+        // Map line numbers to methods by analyzing each method's instructions
+        Map<Integer, String> lineToMethod = new HashMap<>();
+        
+        for (org.pitest.bytecode.analysis.MethodTree method : classTree.methods()) {
+          // Skip synthetic and bridge methods like the original codeLineNumbers() does
+          if ((method.isBridge() || method.isSynthetic()) && !method.isGeneratedLambdaMethod()) {
+            continue;
+          }
+          
+          // Extract line numbers from this method's instructions
+          Set<Integer> methodLines = method.instructions().stream()
+              .filter(n -> n instanceof org.objectweb.asm.tree.LineNumberNode)
+              .map(n -> ((org.objectweb.asm.tree.LineNumberNode) n).line)
+              .collect(java.util.stream.Collectors.toSet());
+          
+          // Map each line to this method with detailed signature
+          for (Integer lineNumber : methodLines) {
+            String methodSignature = formatMethodSignature(method);
+            lineToMethod.put(lineNumber, methodSignature);
+          }
+        }
+        
+        // Create LineInfo objects for all lines in this class
+        for (Integer lineNumber : classTree.codeLineNumbers()) {
+          String methodSignature = lineToMethod.getOrDefault(lineNumber, "unknown");
+          allLines.add(new LineInfo(javaClassName, fileName, methodSignature, lineNumber));
+        }
+      }
+    }
+    
+    // Sort by lineId for consistent ordering
+    allLines.sort((a, b) -> a.lineId.compareTo(b.lineId));
+    return allLines;
+  }
+
+  
+  /**
+   * Extract simple filename from fully qualified class name.
+   */
+  private String extractFileName(String className) {
+    String simpleName = className.substring(className.lastIndexOf('.') + 1);
+    return simpleName + ".java";
+  }
+  
+  /**
+   * Format method signature for display with full class name, method name, readable parameters, and line number.
+   * Extracts the first line number from the method's instructions directly.
+   * Example: org.apache.commons.lang3.math$NumberUtils#createNumber(java.lang.String):462
+   */
+  private String formatMethodSignature(org.pitest.bytecode.analysis.MethodTree method) {
+    String methodName = method.rawNode().name;
+    String className = method.asLocation().getClassName().asJavaName();
+    String methodDesc = method.rawNode().desc;
+    
+    // Extract the first line number from method instructions
+    int lineNumber = getFirstLineNumberFromMethod(method);
+    
+    // Use ASM's Type class to get readable parameter types
+    String readableParameters = getReadableParametersFromDescriptor(methodDesc);
+    
+    // Format as: fully.qualified.ClassName#methodName(readableParameters):lineNumber
+    return className + "#" + methodName + "(" + readableParameters + "):" + lineNumber;
+  }
+  
+  /**
+   * Extract the first line number from a method's instructions.
+   * Returns -1 if no line number information is found.
+   */
+  private int getFirstLineNumberFromMethod(org.pitest.bytecode.analysis.MethodTree method) {
+    for (org.objectweb.asm.tree.AbstractInsnNode insn : method.instructions()) {
+      if (insn instanceof org.objectweb.asm.tree.LineNumberNode) {
+        return ((org.objectweb.asm.tree.LineNumberNode) insn).line;
+      }
+    }
+    return -1; // No line number found
+  }
+  
+  /**
+   * Get readable parameter types from method descriptor using ASM's Type class.
+   * Example: (Ljava/lang/String;I)V -> java.lang.String,int
+   */
+  private String getReadableParametersFromDescriptor(String descriptor) {
+    if (descriptor == null || descriptor.isEmpty()) {
+      return "";
+    }
+    
+    try {
+      org.objectweb.asm.Type methodType = org.objectweb.asm.Type.getMethodType(descriptor);
+      org.objectweb.asm.Type[] argTypes = methodType.getArgumentTypes();
+      
+      List<String> paramTypes = new ArrayList<>();
+      for (org.objectweb.asm.Type argType : argTypes) {
+        paramTypes.add(argType.getClassName());
+      }
+      
+      return String.join(",", paramTypes);
+    } catch (Exception e) {
+      LOG.fine("Failed to parse method descriptor: " + descriptor + " - " + e.getMessage());
+      return "";
+    }
+  }
+  
+  /**
+   * Create a bit sequence for a specific test showing which lines it covers.
+   * Returns a string of 0s and 1s where 1 means the line is covered by this test.
+   */
+  private String createLineCoverageBitSequence(String testName, List<String> allLines, CoverageDatabase coverageData) {
+    // Get all lines covered by this test
+    Set<String> coveredLinesByTest = new HashSet<>();
+    
+    // Check each class for lines covered by this test
+    for (ClassName className : this.code.getCodeUnderTestNames()) {
+      Set<org.pitest.coverage.ClassLine> coveredLines = coverageData.getCoveredLines(className);
+      
+      for (org.pitest.coverage.ClassLine line : coveredLines) {
+        int lineNumber = line.getLineNumber();
+        
+        // Check if this line is covered by the specific test
+        boolean lineCoveredByTest = false;
+        
+        // Check all block coverage to find if this test covers this line
+        if (coverageData instanceof CoverageData) {
+          CoverageData cd = (CoverageData) coverageData;
+          
+          for (BlockCoverage blockCov : cd.createCoverage()) {
+            BlockLocation blockLocation = blockCov.getBlock();
+            
+            // Only check blocks from the same class
+            if (blockLocation.getLocation().getClassName().equals(className)) {
+              // Get the lines covered by this block
+              Set<Integer> blockLines = getBlockLines(cd, blockLocation);
+              
+              // Check if this block covers the current line
+              if (blockLines.contains(lineNumber)) {
+                // Get the tests that cover this specific block
+                Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockLocation);
+                
+                // Check if our specific test covers this block
+                boolean testCoversBlock = testsForBlock.stream()
+                    .anyMatch(test -> test.getName().equals(testName));
+                
+                if (testCoversBlock) {
+                  lineCoveredByTest = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+        
+        if (lineCoveredByTest) {
+          coveredLinesByTest.add(className.asJavaName() + ":" + lineNumber);
+        }
+      }
+    }
+    
+    // Create bit sequence
+    StringBuilder bitSequence = new StringBuilder();
+    for (String line : allLines) {
+      bitSequence.append(coveredLinesByTest.contains(line) ? "1" : "0");
+    }
+    
+    return bitSequence.toString();
+  }
+  
   private String timeSpan(final long t0) {
     return "" + (NANOSECONDS.toSeconds(System.nanoTime() - t0)) + " seconds";
   }
@@ -880,13 +1089,21 @@ public class MutationCoverage {
    * Write individual test result files in the mutation results format
    */
   private void writeIndividualTestResultFiles(java.nio.file.Path baselineTestResultsDir, Set<TestInfo> allTests, 
-                                            Set<String> failingTestNames, List<org.pitest.coverage.CoverageResult> allCoverageResults) throws java.io.IOException {
+                                            Set<String> failingTestNames, List<org.pitest.coverage.CoverageResult> allCoverageResults, CoverageData coverageData) throws java.io.IOException {
     // Sort tests by name to ensure consistent ordering across runs
     List<TestInfo> sortedTests = allTests.stream()
         .sorted((t1, t2) -> t1.getName().compareTo(t2.getName()))
         .collect(java.util.stream.Collectors.toList());
     
     LOG.info("Writing individual test result files for " + sortedTests.size() + " tests");
+    
+    // Get all lines in target codebase with metadata for bit sequence generation and CSV mapping
+    LOG.info("Generating complete line inventory with metadata for bit sequence creation");
+    List<LineInfo> allLinesInfoWithMetadata = getAllLinesInTargetCodebaseWithMetadata();
+    List<String> allLinesInCodebase = allLinesInfoWithMetadata.stream()
+        .map(lineInfo -> lineInfo.lineId)
+        .collect(java.util.stream.Collectors.toList());
+    LOG.info("Found " + allLinesInCodebase.size() + " total lines in target codebase");
     
     // Write the tcs_outcome.csv file in the refactored directory
     java.nio.file.Path outcomeFile = baselineTestResultsDir.resolve("tcs_outcome.csv");
@@ -909,14 +1126,20 @@ public class MutationCoverage {
             result,
             durationMillis);
         
+        // Create bit sequence for this test
+        String bitSequence = createLineCoverageBitSequence(testName, allLinesInCodebase, coverageData);
+        
         // Write individual test result file
-        writeBaselineTestResultFile(baselineTestResultsDir, tcID, testName, result, durationMillis, allCoverageResults);
+        writeBaselineTestResultFile(baselineTestResultsDir, tcID, testName, result, durationMillis, allCoverageResults, bitSequence);
         
         if (LOG.isLoggable(java.util.logging.Level.FINE)) {
           LOG.fine("Created individual test result file for tcID=" + tcID + ": " + testName + " = " + result);
         }
       }
     }
+    
+    // Write the line mapping CSV file that maps bit sequence positions to actual code lines
+    writeLineMappingCSV(baselineTestResultsDir, allLinesInfoWithMetadata);
     
     LOG.info("Created " + sortedTests.size() + " individual test result files and tcs_outcome.csv in: " + baselineTestResultsDir);
   }
@@ -925,7 +1148,7 @@ public class MutationCoverage {
    * Write a single test result file in the mutation results format
    */
   private void writeBaselineTestResultFile(java.nio.file.Path baselineTestResultsDir, int tcID, String testName, 
-                                         String result, double durationMillis, List<org.pitest.coverage.CoverageResult> allCoverageResults) throws java.io.IOException {
+                                         String result, double durationMillis, List<org.pitest.coverage.CoverageResult> allCoverageResults, String bitSequence) throws java.io.IOException {
     java.nio.file.Path testResultFile = baselineTestResultsDir.resolve(tcID + "_test_results.txt");
     
     // Find the corresponding CoverageResult for this test
@@ -979,8 +1202,38 @@ public class MutationCoverage {
       writer.println("*** test_0_stacktrace");
       writer.println(stackTrace);
       writer.println("...");
+      
+      // Write the bit sequence showing line coverage
+      writer.println("*** line_coverage_bit_sequence");
+      writer.println(bitSequence);
+      writer.println("...");
     }
     
-    LOG.fine("Created individual test result file for tcID=" + tcID + ": " + testResultFile);
+    LOG.fine("Created individual test result file for tcID=" + tcID + ": " + testResultFile + " with bit sequence length " + bitSequence.length());
+  }
+  
+  /**
+   * Write line mapping CSV file that maps bit sequence positions to actual code lines.
+   */
+  private void writeLineMappingCSV(java.nio.file.Path baselineTestResultsDir, List<LineInfo> allLinesInfo) throws java.io.IOException {
+    java.nio.file.Path lineMappingFile = baselineTestResultsDir.getParent().resolve("line.csv");
+    
+    try (java.io.PrintWriter csvWriter = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(lineMappingFile,
+            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING))) {
+      
+      // Write CSV header
+      csvWriter.println("line_id,code_filename,line_info");
+      
+      // Write each line mapping
+      for (int i = 0; i < allLinesInfo.size(); i++) {
+        LineInfo lineInfo = allLinesInfo.get(i);
+        csvWriter.printf("%d,%s,%s%n", 
+            i,
+            escapeCsvValue(lineInfo.fileName),
+            escapeCsvValue(lineInfo.methodSignature));
+      }
+    }
+    
+    LOG.info("Created line mapping CSV: " + lineMappingFile + " with " + allLinesInfo.size() + " lines");
   }
 }
