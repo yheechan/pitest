@@ -201,6 +201,9 @@ public class MutationCoverage {
             engine, args, allInterceptors(), testCaseMetadata);
     this.timings.registerEnd(Timings.Stage.BUILD_MUTATION_TESTS);
 
+    // Assign unique mutation IDs after all filtering is complete
+    assignMutantIds(tus);
+
     LOG.info("Created " + tus.size() + " mutation test units" );
 
     // If measureExpectedTime is enabled, estimate total time and exit
@@ -670,60 +673,6 @@ public class MutationCoverage {
   }
 
   /**
-   * Get all lines in all target classes with detailed metadata.
-   * Returns a sorted list of all possible line locations in the codebase with method info.
-   */
-  private List<LineInfo> getAllLinesInTargetCodebaseWithMetadata() {
-    List<LineInfo> allLines = new ArrayList<>();
-    
-    // Iterate through all classes under test
-    for (ClassName className : this.code.getCodeUnderTestNames()) {
-      // Get the class lines information directly from code source
-      Optional<byte[]> classBytes = this.code.fetchClassBytes(className);
-      if (classBytes.isPresent()) {
-        org.pitest.bytecode.analysis.ClassTree classTree = 
-            org.pitest.bytecode.analysis.ClassTree.fromBytes(classBytes.get());
-        
-        String javaClassName = className.asJavaName();
-        String fileName = extractFileName(javaClassName);
-        
-        // Map line numbers to methods by analyzing each method's instructions
-        Map<Integer, String> lineToMethod = new HashMap<>();
-        
-        for (org.pitest.bytecode.analysis.MethodTree method : classTree.methods()) {
-          // Skip synthetic and bridge methods like the original codeLineNumbers() does
-          if ((method.isBridge() || method.isSynthetic()) && !method.isGeneratedLambdaMethod()) {
-            continue;
-          }
-          
-          // Extract line numbers from this method's instructions
-          Set<Integer> methodLines = method.instructions().stream()
-              .filter(n -> n instanceof org.objectweb.asm.tree.LineNumberNode)
-              .map(n -> ((org.objectweb.asm.tree.LineNumberNode) n).line)
-              .collect(java.util.stream.Collectors.toSet());
-          
-          // Map each line to this method with detailed signature
-          for (Integer lineNumber : methodLines) {
-            String methodSignature = formatMethodSignature(method);
-            lineToMethod.put(lineNumber, methodSignature);
-          }
-        }
-        
-        // Create LineInfo objects for all lines in this class
-        for (Integer lineNumber : classTree.codeLineNumbers()) {
-          String methodSignature = lineToMethod.getOrDefault(lineNumber, "unknown");
-          allLines.add(new LineInfo(javaClassName, fileName, methodSignature, lineNumber));
-        }
-      }
-    }
-    
-    // Sort by lineId for consistent ordering
-    allLines.sort((a, b) -> a.lineId.compareTo(b.lineId));
-    return allLines;
-  }
-
-  
-  /**
    * Extract simple filename from fully qualified class name.
    */
   private String extractFileName(String className) {
@@ -790,68 +739,206 @@ public class MutationCoverage {
   }
   
   /**
-   * Create a bit sequence for a specific test showing which lines it covers.
-   * Returns a string of 0s and 1s where 1 means the line is covered by this test.
+   * Get lines executed by failing tests for optimized processing.
+   * This significantly reduces the scope of line coverage analysis.
+   * Only includes lines from target classes (code under test), not test classes.
    */
-  private String createLineCoverageBitSequence(String testName, List<String> allLines, CoverageDatabase coverageData) {
-    // Get all lines covered by this test
-    Set<String> coveredLinesByTest = new HashSet<>();
+  private Set<String> getLinesExecutedByFailingTests(CoverageData coverageData, Set<String> failingTestNames) {
+    Set<String> linesExecutedByFailingTests = new HashSet<>();
     
-    // Check each class for lines covered by this test
-    for (ClassName className : this.code.getCodeUnderTestNames()) {
-      Set<org.pitest.coverage.ClassLine> coveredLines = coverageData.getCoveredLines(className);
+    if (failingTestNames.isEmpty()) {
+      LOG.info("No failing tests found - returning empty line set");
+      return linesExecutedByFailingTests;
+    }
+    
+    LOG.info("Analyzing line coverage for " + failingTestNames.size() + " failing tests");
+    
+    // Get target classes under test (exclude test classes)
+    Collection<ClassName> targetClasses = this.code.getCodeUnderTestNames();
+    Set<String> targetClassNames = targetClasses.stream()
+        .map(ClassName::asJavaName)
+        .collect(Collectors.toSet());
+    
+    // Build a map of line -> tests for efficient lookup
+    for (BlockCoverage blockCov : coverageData.createCoverage()) {
+      Collection<TestInfo> testsForBlock = coverageData.getTestsForBlockLocation(blockCov.getBlock());
       
-      for (org.pitest.coverage.ClassLine line : coveredLines) {
-        int lineNumber = line.getLineNumber();
+      // Check if any failing test covers this block
+      boolean blockCoveredByFailingTest = testsForBlock.stream()
+          .anyMatch(test -> failingTestNames.contains(test.getName()));
+      
+      if (blockCoveredByFailingTest) {
+        ClassName className = blockCov.getBlock().getLocation().getClassName();
+        String classNameString = className.asJavaName();
         
-        // Check if this line is covered by the specific test
-        boolean lineCoveredByTest = false;
-        
-        // Check all block coverage to find if this test covers this line
-        if (coverageData instanceof CoverageData) {
-          CoverageData cd = (CoverageData) coverageData;
+        // Only include lines from target classes (code under test), not test classes
+        if (targetClassNames.contains(classNameString)) {
+          Set<Integer> blockLines = getBlockLines(coverageData, blockCov.getBlock());
           
-          for (BlockCoverage blockCov : cd.createCoverage()) {
-            BlockLocation blockLocation = blockCov.getBlock();
-            
-            // Only check blocks from the same class
-            if (blockLocation.getLocation().getClassName().equals(className)) {
-              // Get the lines covered by this block
-              Set<Integer> blockLines = getBlockLines(cd, blockLocation);
-              
-              // Check if this block covers the current line
-              if (blockLines.contains(lineNumber)) {
-                // Get the tests that cover this specific block
-                Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockLocation);
-                
-                // Check if our specific test covers this block
-                boolean testCoversBlock = testsForBlock.stream()
-                    .anyMatch(test -> test.getName().equals(testName));
-                
-                if (testCoversBlock) {
-                  lineCoveredByTest = true;
-                  break;
-                }
-              }
-            }
+          for (Integer lineNumber : blockLines) {
+            linesExecutedByFailingTests.add(classNameString + ":" + lineNumber);
           }
-        }
-        
-        if (lineCoveredByTest) {
-          coveredLinesByTest.add(className.asJavaName() + ":" + lineNumber);
         }
       }
     }
     
-    // Create bit sequence
+    LOG.info("Found " + linesExecutedByFailingTests.size() + " lines executed by failing tests");
+    return linesExecutedByFailingTests;
+  }
+
+  /**
+   * Get line info only for specific lines (much faster than scanning all lines).
+   */
+  private List<LineInfo> getLineInfoForSpecificLines(Set<String> targetLines) {
+    List<LineInfo> lineInfos = new ArrayList<>();
+    
+    // Group lines by class for efficient processing
+    Map<String, Set<Integer>> linesByClass = new HashMap<>();
+    for (String lineId : targetLines) {
+      String[] parts = lineId.split(":");
+      if (parts.length == 2) {
+        String className = parts[0];
+        try {
+          int lineNumber = Integer.parseInt(parts[1]);
+          linesByClass.computeIfAbsent(className, k -> new HashSet<>()).add(lineNumber);
+        } catch (NumberFormatException e) {
+          LOG.fine("Invalid line number in: " + lineId);
+        }
+      }
+    }
+    
+    // Process each class only once
+    for (Map.Entry<String, Set<Integer>> entry : linesByClass.entrySet()) {
+      String javaClassName = entry.getKey();
+      Set<Integer> classLines = entry.getValue();
+      
+      try {
+        ClassName className = ClassName.fromString(javaClassName.replace('.', '/'));
+        Optional<byte[]> classBytes = this.code.fetchClassBytes(className);
+        
+        if (classBytes.isPresent()) {
+          org.pitest.bytecode.analysis.ClassTree classTree = 
+              org.pitest.bytecode.analysis.ClassTree.fromBytes(classBytes.get());
+          
+          String fileName = extractFileName(javaClassName);
+          
+          // Map line numbers to methods
+          Map<Integer, String> lineToMethod = new HashMap<>();
+          for (org.pitest.bytecode.analysis.MethodTree method : classTree.methods()) {
+            if ((method.isBridge() || method.isSynthetic()) && !method.isGeneratedLambdaMethod()) {
+              continue;
+            }
+            
+            Set<Integer> methodLines = method.instructions().stream()
+                .filter(n -> n instanceof org.objectweb.asm.tree.LineNumberNode)
+                .map(n -> ((org.objectweb.asm.tree.LineNumberNode) n).line)
+                .collect(java.util.stream.Collectors.toSet());
+            
+            for (Integer lineNumber : methodLines) {
+              String methodSignature = formatMethodSignature(method);
+              lineToMethod.put(lineNumber, methodSignature);
+            }
+          }
+          
+          // Create LineInfo objects only for target lines
+          for (Integer lineNumber : classLines) {
+            String methodSignature = lineToMethod.getOrDefault(lineNumber, "unknown");
+            lineInfos.add(new LineInfo(javaClassName, fileName, methodSignature, lineNumber));
+          }
+        }
+      } catch (Exception e) {
+        LOG.fine("Failed to process class " + javaClassName + ": " + e.getMessage());
+      }
+    }
+    
+    // Sort by lineId for consistent ordering
+    lineInfos.sort((a, b) -> a.lineId.compareTo(b.lineId));
+    return lineInfos;
+  }
+
+  /**
+   * Build a test-to-line coverage mapping for efficient bit sequence generation.
+   * This pre-computes all coverage relationships to avoid repeated expensive lookups.
+   */
+  private Map<String, Set<String>> buildTestLineCoverageMap(List<TestInfo> allTests, CoverageData coverageData, Set<String> targetLines) {
+    Map<String, Set<String>> testLineCoverageMap = new HashMap<>();
+    
+    LOG.info("Building test coverage map for " + allTests.size() + " tests and " + targetLines.size() + " target lines");
+    
+    // Initialize map
+    for (TestInfo testInfo : allTests) {
+      testLineCoverageMap.put(testInfo.getName(), new HashSet<>());
+    }
+    
+    // Process coverage data once to build complete mapping
+    for (BlockCoverage blockCov : coverageData.createCoverage()) {
+      Collection<TestInfo> testsForBlock = coverageData.getTestsForBlockLocation(blockCov.getBlock());
+      ClassName className = blockCov.getBlock().getLocation().getClassName();
+      Set<Integer> blockLines = getBlockLines(coverageData, blockCov.getBlock());
+      
+      // Check which target lines are in this block
+      Set<String> blockTargetLines = new HashSet<>();
+      for (Integer lineNumber : blockLines) {
+        String lineId = className.asJavaName() + ":" + lineNumber;
+        if (targetLines.contains(lineId)) {
+          blockTargetLines.add(lineId);
+        }
+      }
+      
+      // If this block contains target lines, map them to covering tests
+      if (!blockTargetLines.isEmpty()) {
+        for (TestInfo test : testsForBlock) {
+          Set<String> testLines = testLineCoverageMap.get(test.getName());
+          if (testLines != null) {
+            testLines.addAll(blockTargetLines);
+          }
+        }
+      }
+    }
+    
+    LOG.info("Built test coverage map with coverage for " + testLineCoverageMap.values().stream().mapToInt(Set::size).sum() + " total test-line pairs");
+    return testLineCoverageMap;
+  }
+
+  /**
+   * Create optimized bit sequence using pre-computed coverage mapping.
+   */
+  private String createOptimizedLineCoverageBitSequence(String testName, List<String> targetLines, Map<String, Set<String>> testLineCoverageMap) {
+    Set<String> coveredLinesByTest = testLineCoverageMap.getOrDefault(testName, Collections.emptySet());
+    
     StringBuilder bitSequence = new StringBuilder();
-    for (String line : allLines) {
+    for (String line : targetLines) {
       bitSequence.append(coveredLinesByTest.contains(line) ? "1" : "0");
     }
     
     return bitSequence.toString();
   }
-  
+
+  /**
+   * Write optimized line mapping CSV file for only the lines executed by failing tests.
+   */
+  private void writeOptimizedLineMappingCSV(java.nio.file.Path baselineTestResultsDir, List<LineInfo> failingTestLinesInfo) throws java.io.IOException {
+    java.nio.file.Path lineMappingFile = baselineTestResultsDir.getParent().resolve("line_info.csv");
+    
+    try (java.io.PrintWriter csvWriter = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(lineMappingFile,
+            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING))) {
+      
+      // Write CSV header
+      csvWriter.println("line_id,code_filename,line_info");
+      
+      // Write each line mapping
+      for (int i = 0; i < failingTestLinesInfo.size(); i++) {
+        LineInfo lineInfo = failingTestLinesInfo.get(i);
+        csvWriter.printf("%d,%s,%s%n", 
+            i,
+            escapeCsvValue(lineInfo.fileName),
+            escapeCsvValue(lineInfo.methodSignature));
+      }
+    }
+    
+    LOG.info("Created optimized line mapping CSV: " + lineMappingFile + " with " + failingTestLinesInfo.size() + " lines (failing-test-executed only)");
+  }
+
   private String timeSpan(final long t0) {
     return "" + (NANOSECONDS.toSeconds(System.nanoTime() - t0)) + " seconds";
   }
@@ -1110,14 +1197,24 @@ public class MutationCoverage {
     
     LOG.info("Writing individual test result files for " + sortedTests.size() + " tests");
     
-    // Get all lines in target codebase with metadata for bit sequence generation and CSV mapping
-    LOG.info("Generating complete line inventory with metadata for bit sequence creation");
-    List<LineInfo> allLinesInfoWithMetadata = getAllLinesInTargetCodebaseWithMetadata();
-    List<String> allLinesInCodebase = allLinesInfoWithMetadata.stream()
+    // OPTIMIZATION: Only generate bit sequences for lines executed by failing tests
+    // This dramatically reduces processing time by focusing only on relevant lines.
+    // Previously: O(tests * all_lines_in_codebase * blocks_per_line)
+    // Now: O(tests * lines_executed_by_failing_tests) with pre-computed mappings
+    LOG.info("Identifying lines executed by failing tests for optimized bit sequence generation");
+    Set<String> linesExecutedByFailingTests = getLinesExecutedByFailingTests(coverageData, failingTestNames);
+    LOG.info("Found " + linesExecutedByFailingTests.size() + " lines executed by failing tests (vs all lines in codebase)");
+    
+    // Create optimized line info only for lines executed by failing tests
+    List<LineInfo> failingTestLinesInfo = getLineInfoForSpecificLines(linesExecutedByFailingTests);
+    List<String> failingTestLines = failingTestLinesInfo.stream()
         .map(lineInfo -> lineInfo.lineId)
         .collect(java.util.stream.Collectors.toList());
-    LOG.info("Found " + allLinesInCodebase.size() + " total lines in target codebase");
     
+    // Pre-compute test-to-line coverage mapping for efficient bit sequence generation
+    LOG.info("Pre-computing test coverage mappings for " + sortedTests.size() + " tests");
+    Map<String, Set<String>> testLineCoverageMap = buildTestLineCoverageMap(sortedTests, coverageData, linesExecutedByFailingTests);
+
     // Write the tcs_outcome.csv file in the refactored directory
     java.nio.file.Path outcomeFile = baselineTestResultsDir.resolve("tcs_outcome.csv");
     try (java.io.PrintWriter csvWriter = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(outcomeFile))) {
@@ -1139,8 +1236,8 @@ public class MutationCoverage {
             result,
             durationMillis);
         
-        // Create bit sequence for this test
-        String bitSequence = createLineCoverageBitSequence(testName, allLinesInCodebase, coverageData);
+        // Create optimized bit sequence using pre-computed mapping
+        String bitSequence = createOptimizedLineCoverageBitSequence(testName, failingTestLines, testLineCoverageMap);
         
         // Write individual test result file
         writeBaselineTestResultFile(baselineTestResultsDir, tcID, testName, result, durationMillis, allCoverageResults, bitSequence);
@@ -1151,8 +1248,8 @@ public class MutationCoverage {
       }
     }
     
-    // Write the line mapping CSV file that maps bit sequence positions to actual code lines
-    writeLineMappingCSV(baselineTestResultsDir, allLinesInfoWithMetadata);
+    // Write the line mapping CSV file that maps bit sequence positions to actual code lines (only failing test lines)
+    writeOptimizedLineMappingCSV(baselineTestResultsDir, failingTestLinesInfo);
     
     LOG.info("Created " + sortedTests.size() + " individual test result files and tcs_outcome.csv in: " + baselineTestResultsDir);
   }
@@ -1201,28 +1298,6 @@ public class MutationCoverage {
   /**
    * Write line mapping CSV file that maps bit sequence positions to actual code lines.
    */
-  private void writeLineMappingCSV(java.nio.file.Path baselineTestResultsDir, List<LineInfo> allLinesInfo) throws java.io.IOException {
-    java.nio.file.Path lineMappingFile = baselineTestResultsDir.getParent().resolve("line_info.csv");
-    
-    try (java.io.PrintWriter csvWriter = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(lineMappingFile,
-            java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING))) {
-      
-      // Write CSV header
-      csvWriter.println("line_id,code_filename,line_info");
-      
-      // Write each line mapping
-      for (int i = 0; i < allLinesInfo.size(); i++) {
-        LineInfo lineInfo = allLinesInfo.get(i);
-        csvWriter.printf("%d,%s,%s%n", 
-            i,
-            escapeCsvValue(lineInfo.fileName),
-            escapeCsvValue(lineInfo.methodSignature));
-      }
-    }
-    
-    LOG.info("Created line mapping CSV: " + lineMappingFile + " with " + allLinesInfo.size() + " lines");
-  }
-
   /**
    * Measure expected mutation testing time instead of running actual mutation tests.
    * This method:
@@ -1419,5 +1494,27 @@ public class MutationCoverage {
       LOG.warning("Failed to calculate lines covered by failing tests: " + e.getMessage());
       return 0;
     }
+  }
+
+  /**
+   * Assigns unique mutation IDs to all mutations in the analysis units.
+   * This is called after all filtering is complete to ensure consistent IDs.
+   */
+  private void assignMutantIds(List<MutationAnalysisUnit> analysisUnits) {
+    int mutantId = 1;
+    int totalMutations = 0;
+    
+    for (MutationAnalysisUnit unit : analysisUnits) {
+      Collection<MutationDetails> mutations = unit.mutants();
+      for (MutationDetails mutation : mutations) {
+        if (!mutation.hasMutantId()) {
+          mutation.setMutantId(mutantId++);
+          LOG.fine("Assigned mutant ID " + mutation.getMutantId() + " to mutation " + mutation.getId());
+        }
+        totalMutations++;
+      }
+    }
+    
+    LOG.info("Assigned unique mutation IDs to " + totalMutations + " mutations across " + analysisUnits.size() + " analysis units");
   }
 }

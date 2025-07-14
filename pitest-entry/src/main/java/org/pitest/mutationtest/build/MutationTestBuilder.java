@@ -22,21 +22,17 @@ import org.pitest.mutationtest.MutationResult;
 import org.pitest.mutationtest.config.ExecutionMode;
 import org.pitest.mutationtest.engine.MutationDetails;
 import org.pitest.mutationtest.engine.MutationIdentifier;
-import org.pitest.util.Log;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.logging.Logger;
 
 import static java.util.Comparator.comparing;
 
 public class MutationTestBuilder {
 
-  private static final Logger LOG = Log.getLogger();
-  
   private final ExecutionMode mode;
   private final MutationSource   mutationSource;
   private final History analyser;
@@ -72,9 +68,6 @@ public class MutationTestBuilder {
     List<MutationResult> analysisUnits = this.analyser.analyse(mutations);
 
     Collection<MutationDetails> needProcessing = filterAlreadyAnalysedMutations(mutations, analysisUnits);
-
-    // Assign unique mutation IDs after all filtering is complete
-    assignMutantIds(needProcessing);
 
     List<MutationResult> analysedMutations = analysisUnits.stream()
             .filter(r -> r.getStatus() != DetectionStatus.NOT_STARTED)
@@ -129,21 +122,6 @@ public class MutationTestBuilder {
       return new DryRunUnit(needAnalysis);
     }
     return new MutationTestUnit(needAnalysis, this.workerFactory, this.codeSource);
-  }
-
-  /**
-   * Assigns unique mutation IDs to all mutations that need processing.
-   * This is called after all filtering is complete to ensure consistent IDs.
-   */
-  private void assignMutantIds(Collection<MutationDetails> needProcessing) {
-    int mutantId = 1;
-    for (MutationDetails mutation : needProcessing) {
-      if (!mutation.hasMutantId()) {
-        mutation.setMutantId(mutantId++);
-        LOG.fine("Assigned mutant ID " + mutation.getMutantId() + " to mutation " + mutation.getId());
-      }
-    }
-    LOG.info("Assigned unique mutation IDs to " + needProcessing.size() + " mutations");
   }
 
 }
