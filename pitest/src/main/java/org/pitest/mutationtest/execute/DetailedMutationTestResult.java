@@ -90,6 +90,14 @@ public class DetailedMutationTestResult implements Serializable {
     }
     
     public String getStackTrace() { 
+        return extractRelevantStackTrace(stackTrace);
+    }
+    
+    /**
+     * Get the original full stack trace (including infrastructure).
+     * This is mainly for debugging purposes.
+     */
+    public String getFullStackTrace() {
         return stackTrace; 
     }
     
@@ -138,34 +146,89 @@ public class DetailedMutationTestResult implements Serializable {
     }
 
     /**
-     * Check if stack trace changed significantly from baseline
+     * Check if stack trace changed significantly from baseline.
+     * This method compares the filtered stack traces between baseline and mutation execution,
+     * focusing on meaningful differences in the actual test execution path.
+     * Exception type and message lines are excluded from comparison - use hasExceptionTypeChanged()
+     * and hasExceptionMessageChanged() to compare those separately.
      */
     public boolean hasStackTraceChanged(TestCaseMetadata baseline) {
         if (baseline == null) {
             return !stackTrace.equals("None");
         }
         
+        // Both getStackTrace() methods now return filtered stack traces
         String baselineStackTrace = baseline.getStackTrace();
+        String thisRelevantTrace = this.getStackTrace(); // Already filtered
         
-        // For stack trace comparison, we'll check if the main exception line differs
-        // This is more robust than full string comparison due to line number changes
-        String thisMainLine = extractMainExceptionLine(this.stackTrace);
-        String baselineMainLine = extractMainExceptionLine(baselineStackTrace);
-        
-        return !thisMainLine.equals(baselineMainLine);
+        return !thisRelevantTrace.equals(baselineStackTrace);
     }
     
-    private String extractMainExceptionLine(String stackTrace) {
+    /**
+     * Extract the relevant part of a stack trace, filtering out PIT infrastructure differences.
+     * This focuses on the actual test execution path and user code, ignoring the differences
+     * between coverage execution and mutation testing execution infrastructure.
+     * Also filters out exception type and message lines to focus only on the call stack.
+     */
+    private String extractRelevantStackTrace(String stackTrace) {
+        return extractRelevantStackTrace(stackTrace, false);
+    }
+    
+    /**
+     * Extract the relevant part of a stack trace, filtering out PIT infrastructure differences.
+     * This focuses on the actual test execution path and user code, ignoring the differences
+     * between coverage execution and mutation testing execution infrastructure.
+     * Also filters out exception type and message lines to focus only on the call stack.
+     * 
+     * @param stackTrace the full stack trace string
+     * @param publicAccess if true, this is a public utility method
+     * @return filtered stack trace containing only relevant execution information
+     */
+    public static String extractRelevantStackTrace(String stackTrace, boolean publicAccess) {
         if (stackTrace == null || stackTrace.equals("None") || stackTrace.equals("No stack trace")) {
             return "None";
         }
         
         String[] lines = stackTrace.split("\n");
-        if (lines.length > 0) {
-            // Return the first line which usually contains the exception type and message
-            return lines[0].trim();
+        StringBuilder relevantTrace = new StringBuilder();
+        boolean foundFirstStackTraceLine = false;
+        
+        for (String line : lines) {
+            String trimmedLine = line.trim();
+            
+            // Skip exception type and message lines (usually first 1-2 lines without "at " prefix)
+            if (!foundFirstStackTraceLine && !trimmedLine.startsWith("at ")) {
+                continue;
+            }
+            foundFirstStackTraceLine = true;
+            
+            // Skip PIT infrastructure lines that differ between coverage and mutation execution
+            if (trimmedLine.contains("org.pitest.coverage.execute.")
+                || trimmedLine.contains("org.pitest.mutationtest.execute.") 
+                || trimmedLine.contains("org.pitest.testapi.execute.")
+                || trimmedLine.contains("java.util.concurrent.")
+                || trimmedLine.contains("java.lang.Thread.run")
+                || trimmedLine.contains("java.util.concurrent.FutureTask")
+                || trimmedLine.contains("java.util.concurrent.Executors")) {
+                continue;
+            }
+            
+            // Include user code and test framework lines
+            if (relevantTrace.length() > 0) {
+                relevantTrace.append("\n");
+            }
+            relevantTrace.append(trimmedLine);
         }
-        return "None";
+        
+        return relevantTrace.toString();
+    }
+    
+    /**
+     * Public utility method to extract relevant stack trace from any stack trace string.
+     * This can be used by other classes to filter stack traces consistently.
+     */
+    public static String getRelevantStackTrace(String stackTrace) {
+        return extractRelevantStackTrace(stackTrace, true);
     }
     
     @Override

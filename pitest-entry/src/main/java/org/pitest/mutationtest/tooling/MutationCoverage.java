@@ -1060,7 +1060,8 @@ public class MutationCoverage {
             }
             
             if (cr.getStackTrace() != null && !cr.getStackTrace().isEmpty() && !"None".equals(cr.getStackTrace())) {
-              stackTrace = cr.getStackTrace();
+              // Filter the stack trace to remove infrastructure differences
+              stackTrace = org.pitest.mutationtest.execute.DetailedMutationTestResult.getRelevantStackTrace(cr.getStackTrace());
             }
             break;
           }
@@ -1167,7 +1168,8 @@ public class MutationCoverage {
         }
         
         if (cr.getStackTrace() != null && !cr.getStackTrace().isEmpty() && !"None".equals(cr.getStackTrace())) {
-          stackTrace = cr.getStackTrace();
+          // Filter the stack trace to remove infrastructure differences
+          stackTrace = org.pitest.mutationtest.execute.DetailedMutationTestResult.getRelevantStackTrace(cr.getStackTrace());
         }
         break;
       }

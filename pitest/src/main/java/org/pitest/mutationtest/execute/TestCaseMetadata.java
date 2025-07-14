@@ -55,6 +55,15 @@ public class TestCaseMetadata implements Serializable {
     }
 
     public String getStackTrace() {
+        // Return filtered stack trace consistent with DetailedMutationTestResult filtering
+        return org.pitest.mutationtest.execute.DetailedMutationTestResult.getRelevantStackTrace(stackTrace);
+    }
+    
+    /**
+     * Get the original full stack trace (including infrastructure).
+     * This is mainly for debugging purposes.
+     */
+    public String getFullStackTrace() {
         return stackTrace;
     }
 

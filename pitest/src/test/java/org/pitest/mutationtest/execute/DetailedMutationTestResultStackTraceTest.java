@@ -6,7 +6,8 @@ import static org.junit.Assert.*;
 public class DetailedMutationTestResultStackTraceTest {
 
     /**
-     * Test that ensures stack traces are not truncated and don't contain "... more" text
+     * Test that ensures stack traces are filtered to exclude exception type/message
+     * and infrastructure code, focusing only on the relevant call stack
      */
     @Test
     public void testStackTraceNotTruncated() {
@@ -22,18 +23,26 @@ public class DetailedMutationTestResultStackTraceTest {
         assertFalse("Stack trace should not contain '... more' text", stackTrace.contains("... more"));
         assertFalse("Stack trace should not contain '... N more' pattern", stackTrace.matches(".*\\.\\.\\. \\d+ more.*"));
         
-        // Verify stack trace contains the full exception information
-        assertTrue("Stack trace should contain exception class name", 
+        // Verify the filtered stack trace excludes exception type/message but includes method calls
+        assertFalse("Filtered stack trace should NOT contain exception class name", 
                    stackTrace.contains("RuntimeException"));
         assertTrue("Stack trace should contain method names from the call stack", 
                    stackTrace.contains("createDeepStackTraceException"));
         
-        // Verify it's a complete stack trace (should have many lines)
+        // Verify each line starts with "at " (call stack format)
         String[] lines = stackTrace.split("\n");
-        assertTrue("Stack trace should have more than 5 lines", lines.length > 5);
+        for (String line : lines) {
+            if (!line.trim().isEmpty()) {
+                assertTrue("Each line should start with 'at ' (call stack format), but found: " + line, 
+                          line.trim().startsWith("at "));
+            }
+        }
         
-        System.out.println("Test passed - stack trace has " + lines.length + " lines");
-        System.out.println("Sample stack trace (first 200 chars): " + 
+        // Verify it's a complete stack trace (should have many lines)
+        assertTrue("Stack trace should have more than 3 lines", lines.length > 3);
+        
+        System.out.println("Test passed - filtered stack trace has " + lines.length + " lines");
+        System.out.println("Sample filtered stack trace (first 200 chars): " + 
                           stackTrace.substring(0, Math.min(200, stackTrace.length())) + "...");
     }
     
