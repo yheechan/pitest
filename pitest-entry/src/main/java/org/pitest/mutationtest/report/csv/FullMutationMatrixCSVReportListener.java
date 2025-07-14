@@ -67,8 +67,8 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
     public void handleMutationResult(ClassMutationResults metaData) {
         try {
             for (MutationResult mutation : metaData.getMutations()) {
-                // Generate unique mutation ID
-                long uniqueMutationId = MutationResultsFileManager.generateMutationId();
+                // Use the mutation ID assigned during filtering
+                long uniqueMutationId = mutation.getDetails().getMutantId();
                 
                 String className = mutation.getDetails().getClassName().asJavaName();
                 String methodName = mutation.getDetails().getMethod();

@@ -209,8 +209,18 @@ public class InlinedFinallyBlockFilter implements MutationInterceptor {
     final MutationIdentifier id = new MutationIdentifier(first.getId()
         .getLocation(), indexes, first.getId().getMutator());
 
-    return new MutationDetails(id, first.getFilename(), first.getDescription(),
+    MutationDetails combined = new MutationDetails(id, first.getFilename(), first.getDescription(),
         first.getLineNumber(), blocksForMutants(value));
+    
+    // Preserve the mutant ID from the first mutation (if any has one)
+    for (MutationDetails mutation : value) {
+      if (mutation.hasMutantId()) {
+        combined.setMutantId(mutation.getMutantId());
+        break;
+      }
+    }
+    
+    return combined;
   }
 
   private static Function<MutationDetails, LineMutatorPair> toLineMutatorPair() {

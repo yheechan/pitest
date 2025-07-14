@@ -40,6 +40,7 @@ public final class MutationDetails implements Serializable {
   private final int                 lineNumber;
   private final String              description;
   private final ArrayList<TestInfo> testsInOrder = new ArrayList<>();
+  private long                      mutantId = -1; // Unique ID assigned after filtering
 
   public MutationDetails(final MutationIdentifier id, final String filename,
       final String description, final int lineNumber, final int block) {
@@ -63,7 +64,9 @@ public final class MutationDetails implements Serializable {
   }
 
   public MutationDetails withDescription(String desc) {
-    return new MutationDetails(this.id, this.filename, desc, this.lineNumber, this.blocks);
+    MutationDetails result = new MutationDetails(this.id, this.filename, desc, this.lineNumber, this.blocks);
+    result.setMutantId(this.mutantId); // Preserve the mutant ID
+    return result;
   }
 
   /**
@@ -152,6 +155,33 @@ public final class MutationDetails implements Serializable {
    */
   public MutationIdentifier getId() {
     return this.id;
+  }
+
+  /**
+   * Gets the unique numeric mutation ID assigned after filtering.
+   * 
+   * @return the mutant ID, or -1 if not assigned yet
+   */
+  public long getMutantId() {
+    return this.mutantId;
+  }
+
+  /**
+   * Sets the unique numeric mutation ID.
+   * 
+   * @param mutantId the mutant ID to assign
+   */
+  public void setMutantId(long mutantId) {
+    this.mutantId = mutantId;
+  }
+
+  /**
+   * Checks if this mutation has been assigned a mutant ID.
+   * 
+   * @return true if mutant ID is assigned, false otherwise
+   */
+  public boolean hasMutantId() {
+    return this.mutantId != -1;
   }
 
   /**

@@ -1216,7 +1216,7 @@ public class MutationCoverage {
    * Write line mapping CSV file that maps bit sequence positions to actual code lines.
    */
   private void writeLineMappingCSV(java.nio.file.Path baselineTestResultsDir, List<LineInfo> allLinesInfo) throws java.io.IOException {
-    java.nio.file.Path lineMappingFile = baselineTestResultsDir.getParent().resolve("line.csv");
+    java.nio.file.Path lineMappingFile = baselineTestResultsDir.getParent().resolve("line_info.csv");
     
     try (java.io.PrintWriter csvWriter = new java.io.PrintWriter(java.nio.file.Files.newBufferedWriter(lineMappingFile,
             java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.TRUNCATE_EXISTING))) {
