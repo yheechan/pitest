@@ -189,6 +189,42 @@ public class MutationCoverage {
     
     // Capture baseline results in main process for fullMatrixResearchMode
     if (this.data.isFullMatrixResearchMode()) {
+      // CoverageData cd = (CoverageData) coverageData;
+      
+      // // Get all coverage results once to avoid multiple calls
+      // List<org.pitest.coverage.CoverageResult> allCoverageResults = cd.getAllCoverageResults();
+      
+      // // === Single pass through coverage data to extract all test information ===
+      
+      // // Collect all unique tests from coverage data
+      // Set<TestInfo> allTests = new HashSet<>();
+      // for (BlockCoverage blockCov : cd.createCoverage()) {
+      //   Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockCov.getBlock());
+      //   allTests.addAll(testsForBlock);
+      // }
+
+      // // print test case metadata for debugging
+      // System.out.println("# of tests: " + allTests.size());
+
+      // // Get failing test descriptions and names
+      // Set<String> failingTestNames = cd.getFailingTestDescriptions().stream()
+      //     .map(desc -> desc.getQualifiedName())
+      //     .collect(java.util.stream.Collectors.toSet());
+      
+      // // print the name of failing tests
+      // for (String failingTestName : failingTestNames) {
+      //   System.out.println("Failing test: " + failingTestName);
+      // }
+
+      // System.out.println("Total number of failing tests: " + failingTestNames.size());
+
+      // // force terminate
+      // if (allTests.isEmpty()) {
+      //   LOG.warning("No test results found in coverage data");
+      //   createEmptyTestResultsCSV(this.data.getReportDir());
+      // }
+      // return emptyStatistics();
+
       // Capture both test case results and baseline results from coverage data in one pass
       testCaseMetadata = captureBaselineAndTestResultsFromCoverageData(coverageData);
       
@@ -467,7 +503,7 @@ public class MutationCoverage {
         createEmptyTestResultsCSV(reportDir);
         return new HashMap<>();
       }
-      
+
       // Get failing test descriptions and names
       Set<String> failingTestNames = cd.getFailingTestDescriptions().stream()
           .map(desc -> desc.getQualifiedName())
@@ -682,35 +718,19 @@ public class MutationCoverage {
   
   /**
    * Format method signature for display with full class name, method name, readable parameters, and line number.
-   * Extracts the first line number from the method's instructions directly.
+   * Uses the provided line number instead of the method's first line number.
    * Example: org.apache.commons.lang3.math$NumberUtils#createNumber(java.lang.String):462
    */
-  private String formatMethodSignature(org.pitest.bytecode.analysis.MethodTree method) {
+  private String formatMethodSignature(org.pitest.bytecode.analysis.MethodTree method, int lineNumber) {
     String methodName = method.rawNode().name;
     String className = method.asLocation().getClassName().asJavaName();
     String methodDesc = method.rawNode().desc;
-    
-    // Extract the first line number from method instructions
-    int lineNumber = getFirstLineNumberFromMethod(method);
     
     // Use ASM's Type class to get readable parameter types
     String readableParameters = getReadableParametersFromDescriptor(methodDesc);
     
     // Format as: fully.qualified.ClassName#methodName(readableParameters):lineNumber
     return className + "#" + methodName + "(" + readableParameters + "):" + lineNumber;
-  }
-  
-  /**
-   * Extract the first line number from a method's instructions.
-   * Returns -1 if no line number information is found.
-   */
-  private int getFirstLineNumberFromMethod(org.pitest.bytecode.analysis.MethodTree method) {
-    for (org.objectweb.asm.tree.AbstractInsnNode insn : method.instructions()) {
-      if (insn instanceof org.objectweb.asm.tree.LineNumberNode) {
-        return ((org.objectweb.asm.tree.LineNumberNode) insn).line;
-      }
-    }
-    return -1; // No line number found
   }
   
   /**
@@ -835,7 +855,7 @@ public class MutationCoverage {
                 .collect(java.util.stream.Collectors.toSet());
             
             for (Integer lineNumber : methodLines) {
-              String methodSignature = formatMethodSignature(method);
+              String methodSignature = formatMethodSignature(method, lineNumber);
               lineToMethod.put(lineNumber, methodSignature);
             }
           }

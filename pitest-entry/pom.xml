@@ -14,7 +14,7 @@
 
 	<build>
 		<plugins>
-		    <!-- include ASM in the jar, not relocated as will never share classpath with dependencies -->
+		    <!-- include ASM in the jar, relocated to avoid conflicts with test dependencies like CGLIB/EasyMock -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-shade-plugin</artifactId>
@@ -30,6 +30,12 @@
 									<include>org.ow2.asm:*</include>
 								</includes>
 							</artifactSet>
+							<relocations>
+								<relocation>
+									<pattern>org.objectweb.asm</pattern>
+									<shadedPattern>org.pitest.entry.reloc.asm</shadedPattern>
+								</relocation>
+							</relocations>
 						</configuration>
 					</execution>
 				</executions>

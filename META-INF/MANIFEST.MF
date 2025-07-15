@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+Created-By: Apache Maven 3.6.3
+Built-By: yangheechan
+Build-Jdk: 11.0.27
+Implementation-Title: pitest-command-line
+Implementation-Version: dev-SNAPSHOT
+Implementation-Vendor-Id: org.pitest
+Implementation-Vendor: org.pitest
+Implementation-URL: https://pitest.org
+Main-Class: org.pitest.mutationtest.commandline.MutationCoverageReport
+
