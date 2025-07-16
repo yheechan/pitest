@@ -101,6 +101,18 @@ public class MutationCoverage {
   private final File               baseDir;
   private final SettingsFactory    settings;
 
+  // Cache for block-to-line mappings to avoid repeated expensive reflection calls
+  private final Map<BlockLocation, Set<Integer>> blockLinesCache = new HashMap<>();
+
+  /**
+   * Clear optimization caches to free memory.
+   * Should be called after fullMatrixResearchMode processing is complete.
+   */
+  private void clearOptimizationCaches() {
+    blockLinesCache.clear();
+    LOG.fine("Cleared optimization caches to free memory");
+  }
+
   public MutationCoverage(final MutationStrategies strategies,
       final File baseDir, final CodeSource code, final ReportOptions data,
       final SettingsFactory settings, final Timings timings) {
@@ -230,6 +242,9 @@ public class MutationCoverage {
       
       // Save original bytecode once in main process for all classes
       saveOriginalBytecodeInMainProcess();
+      
+      // Clear cache to free memory after fullMatrixResearchMode processing
+      clearOptimizationCaches();
     }
 
     this.timings.registerStart(Timings.Stage.BUILD_MUTATION_TESTS);
@@ -237,10 +252,10 @@ public class MutationCoverage {
             engine, args, allInterceptors(), testCaseMetadata);
     this.timings.registerEnd(Timings.Stage.BUILD_MUTATION_TESTS);
 
-    // Assign unique mutation IDs after all filtering is complete
-    assignMutantIds(tus);
-
     LOG.info("Created " + tus.size() + " mutation test units" );
+    
+    // Assign unique IDs to all mutations to ensure proper tracking
+    assignMutantIds(tus);
 
     // If measureExpectedTime is enabled, estimate total time and exit
     if (this.data.isMeasureExpectedTime()) {
@@ -450,6 +465,30 @@ public class MutationCoverage {
 
     return builder.createMutationTestUnits(this.code.getCodeUnderTestNames());
   }
+  /**
+   * Assign unique IDs to all mutations for proper tracking in reports.
+   * This is essential for mutation identification and CSV output.
+   */
+  private void assignMutantIds(List<MutationAnalysisUnit> mutationTestUnits) {
+    LOG.info("Assigning unique IDs to mutations");
+    
+    long mutantIdCounter = 0;
+    int totalMutations = 0;
+    
+    for (MutationAnalysisUnit unit : mutationTestUnits) {
+      Collection<MutationDetails> mutants = unit.mutants();
+      for (MutationDetails mutant : mutants) {
+        if (!mutant.hasMutantId()) {
+          mutant.setMutantId(mutantIdCounter);
+          mutantIdCounter++;
+        }
+        totalMutations++;
+      }
+    }
+    
+    LOG.info("Assigned unique IDs to " + totalMutations + " mutations (highest ID: " + (mutantIdCounter - 1) + ")");
+  }
+
   private void checkMutationsFound(final List<MutationAnalysisUnit> tus) {
     if (tus.isEmpty()) {
       if (this.data.shouldFailWhenNoMutations()) {
@@ -534,7 +573,53 @@ public class MutationCoverage {
         }
       }
       
-      // === Analyze line coverage by test status ===
+      // === OPTIMIZED: Build line-to-test mappings in single pass ===
+      LOG.info("Building optimized line-to-test mappings for coverage analysis");
+      
+      // Maps to store which lines are covered by failing/passing tests
+      Map<String, Boolean> lineToFailingTestCoverage = new HashMap<>();
+      Map<String, Boolean> lineToPassingTestCoverage = new HashMap<>();
+      
+      // Get target class names for filtering
+      Set<ClassName> targetClassNames = this.code.getCodeUnderTestNames();
+      
+      // Single pass through all blocks to build line-to-test mappings
+      for (BlockCoverage blockCov : cd.createCoverage()) {
+        BlockLocation blockLocation = blockCov.getBlock();
+        ClassName blockClassName = blockLocation.getLocation().getClassName();
+        
+        // Only process blocks from target classes (code under test)
+        if (targetClassNames.contains(blockClassName)) {
+          Set<Integer> blockLines = getBlockLines(cd, blockLocation);
+          Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockLocation);
+          
+          // Check if any failing tests cover this block
+          boolean blockCoveredByFailingTest = testsForBlock.stream()
+              .anyMatch(test -> failingTestNames.contains(test.getName()));
+          
+          // Check if any passing tests cover this block
+          boolean blockCoveredByPassingTest = testsForBlock.stream()
+              .anyMatch(test -> !failingTestNames.contains(test.getName()));
+          
+          // Map each line in this block to test coverage status
+          for (Integer lineNumber : blockLines) {
+            String lineId = blockClassName.asJavaName() + ":" + lineNumber;
+            
+            if (blockCoveredByFailingTest) {
+              lineToFailingTestCoverage.put(lineId, true);
+            }
+            
+            if (blockCoveredByPassingTest) {
+              lineToPassingTestCoverage.put(lineId, true);
+            }
+          }
+        }
+      }
+      
+      LOG.info("Built line-to-test mappings for " + lineToFailingTestCoverage.size() + " failing test lines and " 
+               + lineToPassingTestCoverage.size() + " passing test lines");
+      
+      // === Now efficiently analyze coverage by class using pre-computed mappings ===
       for (ClassName className : this.code.getCodeUnderTestNames()) {
         Set<ClassLine> coveredLines = cd.getCoveredLines(className);
         Set<Integer> failingLines = new HashSet<>();
@@ -542,41 +627,11 @@ public class MutationCoverage {
         
         for (ClassLine line : coveredLines) {
           int lineNumber = line.getLineNumber();
-          boolean coveredByFailingTest = false;
-          boolean coveredByPassingTest = false;
+          String lineId = className.asJavaName() + ":" + lineNumber;
           
-          // Check all block coverage to find blocks that cover this specific line
-          for (BlockCoverage blockCov : cd.createCoverage()) {
-            BlockLocation blockLocation = blockCov.getBlock();
-            
-            // Only check blocks from the same class
-            if (blockLocation.getLocation().getClassName().equals(className)) {
-              // Get the lines covered by this block
-              Set<Integer> blockLines = getBlockLines(cd, blockLocation);
-              
-              // Check if this block covers the current line
-              if (blockLines.contains(lineNumber)) {
-                // Get the tests that cover this specific block
-                Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockLocation);
-                
-                // Check if any of the tests for this block are failing tests
-                boolean blockCoveredByFailingTest = testsForBlock.stream()
-                    .anyMatch(test -> failingTestNames.contains(test.getName()));
-                
-                // Check if any of the tests for this block are passing tests
-                boolean blockCoveredByPassingTest = testsForBlock.stream()
-                    .anyMatch(test -> !failingTestNames.contains(test.getName()));
-                
-                if (blockCoveredByFailingTest) {
-                  coveredByFailingTest = true;
-                }
-                
-                if (blockCoveredByPassingTest) {
-                  coveredByPassingTest = true;
-                }
-              }
-            }
-          }
+          // Fast O(1) lookup instead of nested loop
+          boolean coveredByFailingTest = lineToFailingTestCoverage.containsKey(lineId);
+          boolean coveredByPassingTest = lineToPassingTestCoverage.containsKey(lineId);
           
           if (coveredByFailingTest) {
             failingTestLines.add(lineNumber);
@@ -660,8 +715,15 @@ public class MutationCoverage {
   /**
    * Helper method to get lines covered by a specific block.
    * Uses reflection to access the private getLinesForBlock method in LegacyClassCoverage.
+   * Results are cached to avoid repeated expensive reflection calls.
    */
   private Set<Integer> getBlockLines(CoverageData cd, BlockLocation blockLocation) {
+    // Check cache first
+    Set<Integer> cachedLines = blockLinesCache.get(blockLocation);
+    if (cachedLines != null) {
+      return cachedLines;
+    }
+    
     try {
       // Access the legacyClassCoverage field
       java.lang.reflect.Field legacyField = CoverageData.class.getDeclaredField("legacyClassCoverage");
@@ -674,11 +736,17 @@ public class MutationCoverage {
       
       @SuppressWarnings("unchecked")
       Set<Integer> lines = (Set<Integer>) getLinesMethod.invoke(legacyClassCoverage, blockLocation);
-      return lines != null ? lines : Collections.emptySet();
+      Set<Integer> result = lines != null ? lines : Collections.emptySet();
+      
+      // Cache the result
+      blockLinesCache.put(blockLocation, result);
+      return result;
       
     } catch (Exception e) {
       LOG.fine("Could not access block lines for " + blockLocation + ": " + e.getMessage());
-      return Collections.emptySet();
+      Set<Integer> emptySet = Collections.emptySet();
+      blockLinesCache.put(blockLocation, emptySet);
+      return emptySet;
     }
   }
 
@@ -1514,27 +1582,5 @@ public class MutationCoverage {
       LOG.warning("Failed to calculate lines covered by failing tests: " + e.getMessage());
       return 0;
     }
-  }
-
-  /**
-   * Assigns unique mutation IDs to all mutations in the analysis units.
-   * This is called after all filtering is complete to ensure consistent IDs.
-   */
-  private void assignMutantIds(List<MutationAnalysisUnit> analysisUnits) {
-    int mutantId = 1;
-    int totalMutations = 0;
-    
-    for (MutationAnalysisUnit unit : analysisUnits) {
-      Collection<MutationDetails> mutations = unit.mutants();
-      for (MutationDetails mutation : mutations) {
-        if (!mutation.hasMutantId()) {
-          mutation.setMutantId(mutantId++);
-          LOG.fine("Assigned mutant ID " + mutation.getMutantId() + " to mutation " + mutation.getId());
-        }
-        totalMutations++;
-      }
-    }
-    
-    LOG.info("Assigned unique mutation IDs to " + totalMutations + " mutations across " + analysisUnits.size() + " analysis units");
   }
 }
