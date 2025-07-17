@@ -80,8 +80,8 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
     @Override
     public void runStart() {
         try {
-            // Write CSV header with bit sequence transition columns
-            out.write("mutant_id,class,method,line,mutator,F2P_transition,P2F_transition,P2P_transition,F2F_transition,exception_type_transition,exception_msg_transition,stacktrace_transition,status,num_tests_run\n");
+            // Write CSV header with only result_transition and exception transitions
+            out.write("mutant_id,class,method,line,mutator,result_transition,exception_type_transition,exception_msg_transition,stacktrace_transition,status,num_tests_run\n");
         } catch (IOException e) {
             throw new RuntimeException("Error writing CSV header", e);
         }
@@ -155,64 +155,47 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         row.append(escapeCsv(methodName)).append(",");
         row.append(lineNumber).append(",");
         row.append(escapeCsv(mutatorName)).append(",");
-        
+
         // Create bit sequences for transitions
-        String f2pBitSequence = createTransitionBitSequence(detailedResults, "F2P");
-        String p2fBitSequence = createTransitionBitSequence(detailedResults, "P2F");
-        String p2pBitSequence = createTransitionBitSequence(detailedResults, "P2P");
-        String f2fBitSequence = createTransitionBitSequence(detailedResults, "F2F");
+        String resultTransitionBitSequence = createResultTransitionBitSequence(detailedResults);
         String exceptionTypeBitSequence = createExceptionTransitionBitSequence(detailedResults, "TYPE");
         String exceptionMsgBitSequence = createExceptionTransitionBitSequence(detailedResults, "MESSAGE");
         String stacktraceBitSequence = createExceptionTransitionBitSequence(detailedResults, "STACKTRACE");
-        
+
         // Add bit sequences to row
-        row.append(f2pBitSequence).append(",");
-        row.append(p2fBitSequence).append(",");
-        row.append(p2pBitSequence).append(",");
-        row.append(f2fBitSequence).append(",");
+        row.append(resultTransitionBitSequence).append(",");
         row.append(exceptionTypeBitSequence).append(",");
         row.append(exceptionMsgBitSequence).append(",");
         row.append(stacktraceBitSequence).append(",");
-        
+
         // Status and test count
         row.append(escapeCsv(status)).append(",");
         row.append(numTestsRun);
-        
         row.append("\n");
         out.write(row.toString());
     }
 
     /**
-     * Create a bit sequence for a specific transition type across all ordered tests.
-     * @param detailedResults the test results for this mutant
-     * @param transitionType "F2P", "P2F", "P2P", or "F2F"
-     * @return bit sequence string where 1 = transition occurred, 0 = transition did not occur
+     * Create a bit sequence where 1 means the test result changed (F2P or P2F), 0 means it did not (P2P or F2F).
      */
-    private String createTransitionBitSequence(List<DetailedMutationTestResult> detailedResults, String transitionType) {
+    private String createResultTransitionBitSequence(List<DetailedMutationTestResult> detailedResults) {
         if (orderedTestNames.isEmpty()) {
-            return ""; // No test metadata available
+            return "";
         }
-        
-        // Create a map of test results for quick lookup
         Map<String, DetailedMutationTestResult> resultMap = new HashMap<>();
         for (DetailedMutationTestResult result : detailedResults) {
             resultMap.put(result.getTestName(), result);
         }
-        
         StringBuilder bitSequence = new StringBuilder();
-        
         for (String testName : orderedTestNames) {
             DetailedMutationTestResult testResult = resultMap.get(testName);
-            
             if (testResult == null) {
-                // Test was not executed on this mutant, assume no transition
                 bitSequence.append("0");
             } else {
-                String actualTransition = computeResultTransition(testResult);
-                bitSequence.append(actualTransition.equals(transitionType) ? "1" : "0");
+                String transition = computeResultTransition(testResult);
+                bitSequence.append((transition.equals("F2P") || transition.equals("P2F")) ? "1" : "0");
             }
         }
-        
         return bitSequence.toString();
     }
 
