@@ -26,8 +26,6 @@ public class BaselineResultsHolder {
         if (results != null) {
             baselineResults.putAll(results);
         }
-        System.out.println("DEBUG: BaselineResultsHolder.setBaselineResults called with " 
-                          + (results != null ? results.size() : 0) + " results");
     }
 
     /**
@@ -38,8 +36,6 @@ public class BaselineResultsHolder {
         if (lines != null) {
             failingTestLines.addAll(lines);
         }
-        System.out.println("DEBUG: BaselineResultsHolder.setFailingTestLines called with " 
-                          + (lines != null ? lines.size() : 0) + " lines");
     }
 
     /**
@@ -50,16 +46,12 @@ public class BaselineResultsHolder {
         if (linesByClass != null) {
             failingTestLinesByClass.putAll(linesByClass);
         }
-        System.out.println("DEBUG: BaselineResultsHolder.setFailingTestLinesByClass called with " 
-                          + (linesByClass != null ? linesByClass.size() : 0) + " classes");
     }
 
     /**
      * Get baseline results 
      */
     public static synchronized Map<String, Boolean> getBaselineResults() {
-        System.out.println("DEBUG: BaselineResultsHolder.getBaselineResults called, returning " 
-                          + baselineResults.size() + " results");
         return new HashMap<>(baselineResults);
     }
 

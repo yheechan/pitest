@@ -37,10 +37,6 @@ public class BaselineResultsFileHolder {
             try (FileOutputStream fos = new FileOutputStream(baselineResultsPath.toFile())) {
                 props.store(fos, "Baseline test results for PIT research mode");
             }
-            
-            System.out.println("DEBUG: Stored baseline results to file: " + baselineResultsPath);
-            System.out.println("DEBUG: Stored " + baselineResults.size() + " baseline results");
-            
         } catch (IOException e) {
             System.err.println("ERROR: Failed to store baseline results: " + e.getMessage());
             e.printStackTrace();
@@ -54,7 +50,6 @@ public class BaselineResultsFileHolder {
         Map<String, Boolean> results = new HashMap<>();
         
         if (baselineResultsPath == null || !Files.exists(baselineResultsPath)) {
-            System.out.println("DEBUG: No baseline results file found");
             return results;
         }
         
@@ -66,9 +61,6 @@ public class BaselineResultsFileHolder {
                 String value = props.getProperty(key);
                 results.put(key, Boolean.parseBoolean(value));
             }
-            
-            System.out.println("DEBUG: Loaded " + results.size() + " baseline results from file");
-            
         } catch (IOException e) {
             System.err.println("ERROR: Failed to load baseline results: " + e.getMessage());
             e.printStackTrace();
@@ -91,7 +83,6 @@ public class BaselineResultsFileHolder {
         if (baselineResultsPath != null && Files.exists(baselineResultsPath)) {
             try {
                 Files.delete(baselineResultsPath);
-                System.out.println("DEBUG: Cleaned up baseline results file");
             } catch (IOException e) {
                 System.err.println("WARNING: Failed to clean up baseline results file: " + e.getMessage());
             }

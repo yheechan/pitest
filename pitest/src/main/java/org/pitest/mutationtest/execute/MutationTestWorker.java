@@ -99,11 +99,7 @@ public class MutationTestWorker {
 
     // In research mode, extract baseline results from metadata once for all mutations
     if (this.fullMatrixResearchMode && this.baselineResults == null) {
-      System.out.println("DEBUG: MutationTestWorker - fullMatrixResearchMode enabled, extracting baseline results from metadata");
       extractBaselineResultsFromMetadata();
-      System.out.println("DEBUG: MutationTestWorker - baseline extraction completed, stored " 
-                        + (this.baselineResults != null ? this.baselineResults.size() : 0) 
-                        + " results");
     }
 
     for (final MutationDetails mutation : range) {
@@ -274,14 +270,12 @@ public class MutationTestWorker {
    * Extract baseline test results from received metadata in research mode
    */
   private void extractBaselineResultsFromMetadata() {
-    System.out.println("DEBUG: MutationTestWorker.extractBaselineResultsFromMetadata() - Starting baseline extraction from metadata");
     if (DEBUG) {
       LOG.fine("Extracting baseline results from test case metadata for research mode");
     }
     
     try {
       if (this.testCaseMetadata == null || this.testCaseMetadata.isEmpty()) {
-        System.out.println("DEBUG: No test case metadata available, cannot extract baseline results");
         LOG.warning("No test case metadata available for research mode");
         this.baselineResults = new HashMap<>();
         return;
@@ -295,7 +289,6 @@ public class MutationTestWorker {
         TestCaseMetadata metadata = entry.getValue();
         this.baselineResults.put(testName, metadata.isBaselinePassed());
         
-        System.out.println("DEBUG: Baseline test " + (metadata.isBaselinePassed() ? "passed" : "failed") + ": " + testName);
         if (DEBUG) {
           LOG.fine("Baseline test " + (metadata.isBaselinePassed() ? "passed" : "failed") + ": " + testName);
         }
@@ -303,11 +296,6 @@ public class MutationTestWorker {
       
       // Store baseline results in holder for other components if needed
       BaselineResultsHolder.setBaselineResults(this.baselineResults);
-      
-      // Debug: Verify baseline results are stored
-      System.out.println("DEBUG: Stored baseline results in holder, size: " + this.baselineResults.size());
-      System.out.println("DEBUG: Sample stored results: " + this.baselineResults.entrySet().stream().limit(3).collect(java.util.stream.Collectors.toList()));
-      System.out.println("DEBUG: Verified holder has results: " + BaselineResultsHolder.hasBaselineResults());
       
       if (DEBUG) {
         long passingCount = this.baselineResults.values().stream().mapToLong(b -> b ? 1 : 0).sum();
@@ -317,7 +305,6 @@ public class MutationTestWorker {
                 + failingCount + " failing");
       }
     } catch (final Exception ex) {
-      System.out.println("DEBUG: Error extracting baseline results from metadata: " + ex.getMessage());
       LOG.log(Level.WARNING, "Error extracting baseline results from metadata", ex);
       this.baselineResults = new HashMap<>();
       throw translateCheckedException(ex);

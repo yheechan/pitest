@@ -34,8 +34,6 @@ public class MutationResultsFileManager {
         
         // Reset counter for new run
         MUTATION_ID_COUNTER.set(0);
-        
-        System.out.println("DEBUG: Initialized mutation results directory: " + mutationResultsDir);
     }
     
     /**
@@ -60,8 +58,6 @@ public class MutationResultsFileManager {
             // Write JSON format for easier parsing
             JsonTestResultWriter.writeMutationTestResultJson(
                 mutationResultsDir, mutationId, mutantDescription, testResults);
-            System.out.println("DEBUG: Saved mutation test results JSON to: " 
-                + mutationResultsDir.resolve(mutationId + "_mutation_test_results.json"));
             
         } catch (Exception e) {
             System.err.println("ERROR: Failed to save mutation test results for mutation " + mutationId + ": " + e.getMessage());
@@ -98,7 +94,7 @@ public class MutationResultsFileManager {
                 }
             }
             
-            System.out.println("DEBUG: Created mutation summary CSV: " + summaryFile);
+            // ...existing code...
             
         } catch (IOException e) {
             System.err.println("ERROR: Failed to create mutation summary CSV: " + e.getMessage());
