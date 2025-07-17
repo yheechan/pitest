@@ -84,7 +84,7 @@ public class MutationSourceTest {
   }
 
   private Function<Integer, TestInfo> timeToTestInfo() {
-    return a -> new TestInfo("foo", "bar", a, Optional.<ClassName> empty(), 0);
+    return a -> new TestInfo("foo", "bar", (double) a, Optional.<ClassName> empty(), 0);
   }
 
   private List<MutationDetails> makeMutations(final String method) {

@@ -1191,7 +1191,7 @@ public class MutationCoverage {
       String testName = testInfo.getName();
       Integer tcID = testCaseIdMapping.get(testName);
       boolean baselinePassed = !failingTestNames.contains(testName);
-      double executionTimeMs = testInfo.getTime();
+      double executionTimeMs = testInfo.getTimeInMilliseconds();
       
       String exceptionType = "None";
       String exceptionMessage = "None";
@@ -1278,7 +1278,7 @@ public class MutationCoverage {
         TestInfo testInfo = sortedTests.get(tcID);
         String testName = testInfo.getName();
         boolean passed = !failingTestNames.contains(testName);
-        double durationMillis = testInfo.getTime();
+        double durationMillis = testInfo.getTimeInMilliseconds();
         String result = passed ? "PASS" : "FAIL";
         
         // Write CSV entry

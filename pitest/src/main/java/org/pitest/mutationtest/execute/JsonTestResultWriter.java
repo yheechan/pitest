@@ -164,6 +164,13 @@ public class JsonTestResultWriter {
             sb.append("null");
         } else if (obj instanceof String) {
             sb.append("\"").append(escapeJsonString((String) obj)).append("\"");
+        } else if (obj instanceof Double) {
+            // Preserve full precision for double values without unnecessary trailing zeros
+            double value = (Double) obj;
+            // Always show at least some decimal precision to make it clear it's a double
+            // Use BigDecimal for precise formatting
+            java.math.BigDecimal bd = java.math.BigDecimal.valueOf(value);
+            sb.append(bd.toPlainString());
         } else if (obj instanceof Number || obj instanceof Boolean) {
             sb.append(obj.toString());
         } else if (obj instanceof Map) {

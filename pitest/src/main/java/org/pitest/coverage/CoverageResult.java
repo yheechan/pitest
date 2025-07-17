@@ -7,7 +7,7 @@ import org.pitest.testapi.Description;
 public class CoverageResult {
 
   private final Description               testUnitDescription;
-  private final int                       executionTime;
+  private final double                    executionTime;
   private final Collection<BlockLocation> visitedBlocks;
   private final boolean                   greenSuite;
   private final String                    exceptionType;
@@ -15,13 +15,13 @@ public class CoverageResult {
   private final String                    stackTrace;
 
   public CoverageResult(final Description testUnitDescription,
-      final int executionTime, final boolean greenSuite,
+      final double executionTime, final boolean greenSuite,
       final Collection<BlockLocation> visitedBlocks) {
     this(testUnitDescription, executionTime, greenSuite, visitedBlocks, "None", "None", "None");
   }
 
   public CoverageResult(final Description testUnitDescription,
-      final int executionTime, final boolean greenSuite,
+      final double executionTime, final boolean greenSuite,
       final Collection<BlockLocation> visitedBlocks,
       final String exceptionType, final String exceptionMessage, final String stackTrace) {
     this.testUnitDescription = testUnitDescription;
@@ -37,7 +37,7 @@ public class CoverageResult {
     return this.testUnitDescription;
   }
 
-  public int getExecutionTime() {
+  public double getExecutionTime() {
     return this.executionTime;
   }
 

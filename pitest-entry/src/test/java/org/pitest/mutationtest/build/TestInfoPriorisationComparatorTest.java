@@ -91,7 +91,7 @@ public class TestInfoPriorisationComparatorTest {
 
   private TestInfo testInfo(final int time, final String target,
       final int linesCovered) {
-    return new TestInfo("", time + target + linesCovered, time,
+    return new TestInfo("", time + target + linesCovered, (double) time,
         Optional.ofNullable(ClassName.fromString(target)), linesCovered);
   }
 

@@ -29,13 +29,21 @@ public final class TestInfo implements Serializable {
   private final String            name;
   private final String            definingClass;
 
-  private final int               time;
+  private final double            time; // Execution time in milliseconds
   private final int               blocks;
 
   private final ClassName         testee;
 
+  /**
+   * Creates a new TestInfo instance.
+   * @param definingClass the class that defines this test
+   * @param name the test method name
+   * @param time execution time in milliseconds (with sub-millisecond precision)
+   * @param testee the class under test, if directly targeted
+   * @param blocksCovered number of code blocks covered by this test
+   */
   public TestInfo(final String definingClass, final String name,
-      final int time, final Optional<ClassName> testee, final int blocksCovered) {
+      final double time, final Optional<ClassName> testee, final int blocksCovered) {
     this.definingClass = internIfNotNull(definingClass);
     this.name = name;
     this.time = time;
@@ -47,8 +55,29 @@ public final class TestInfo implements Serializable {
     return this.name;
   }
 
+  /**
+   * Get execution time in milliseconds, rounded to nearest millisecond.
+   * For backward compatibility, this returns an integer value.
+   * @return execution time in milliseconds as an integer
+   */
   public int getTime() {
+    return (int) Math.round(this.time);
+  }
+
+  /**
+   * Get execution time in milliseconds with sub-millisecond precision.
+   * @return execution time in milliseconds as a double
+   */
+  public double getTimeInMilliseconds() {
     return this.time;
+  }
+
+  /**
+   * Get execution time in microseconds.
+   * @return execution time in microseconds
+   */
+  public int getTimeInMicroseconds() {
+    return (int) Math.round(this.time * 1000); // Convert milliseconds to microseconds
   }
 
   public int getNumberOfBlocksCovered() {

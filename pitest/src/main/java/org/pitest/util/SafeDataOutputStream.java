@@ -102,6 +102,14 @@ public class SafeDataOutputStream {
     }
   }
 
+  public void writeDouble(final double d) {
+    try {
+      this.dos.writeDouble(d);
+    } catch (final IOException e) {
+      throw Unchecked.translateCheckedException(e);
+    }
+  }
+
   private byte[] toByteArray(Serializable value) throws IOException {
     try (ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
       final ObjectOutput out = new ObjectOutputStream(bos);

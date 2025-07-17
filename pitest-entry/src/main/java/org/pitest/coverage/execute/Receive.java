@@ -90,7 +90,7 @@ final class Receive implements ReceiveStrategy {
   private CoverageResult createCoverageResult(final SafeDataInputStream is,
       final Description d, Collection<BlockLocation> visitedBlocks) {
     final boolean isGreen = is.readBoolean();
-    final int executionTime = is.readInt();
+    final double executionTime = is.readDouble();
     
     // Read exception details (added for enhanced test result reporting)
     final String exceptionType = is.readString();

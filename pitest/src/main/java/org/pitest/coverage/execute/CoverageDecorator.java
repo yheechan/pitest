@@ -25,8 +25,6 @@ import org.pitest.testapi.ResultCollector;
 import org.pitest.testapi.TestUnit;
 import org.pitest.util.Log;
 
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
-
 public class CoverageDecorator extends TestUnitDecorator {
 
   private static final Logger    LOG     = Log.getLogger();
@@ -49,7 +47,9 @@ public class CoverageDecorator extends TestUnitDecorator {
     final ExceptionCapturingResultCollector wrappedCollector = new ExceptionCapturingResultCollector(rc);
     this.child().execute(wrappedCollector);
 
-    final int executionTime = (int) NANOSECONDS.toMillis(System.nanoTime() - t0);
+    // Calculate execution time in milliseconds with full precision
+    final long executionTimeNanos = System.nanoTime() - t0;
+    final double executionTime = executionTimeNanos / 1_000_000.0;
 
     final int threadsAfterTest = this.threads.getThreadCount();
     if (threadsAfterTest > threadsBeforeTest) {

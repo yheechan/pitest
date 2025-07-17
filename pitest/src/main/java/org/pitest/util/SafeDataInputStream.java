@@ -95,6 +95,14 @@ public class SafeDataInputStream {
     }
   }
 
+  public double readDouble() {
+    try {
+      return this.dis.readDouble();
+    } catch (final IOException e) {
+      throw Unchecked.translateCheckedException(e);
+    }
+  }
+
   private Object deserialize(byte[] bytes) throws IOException {
     final ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
     try (ObjectInput in = new ObjectInputStream(bis)) {

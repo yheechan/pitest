@@ -168,7 +168,7 @@ public class IncrementalAnalyserTest {
     setHistoryForAllMutationsTo(DetectionStatus.KILLED, killingTest);
 
     final Collection<TestInfo> tests = Collections.singleton(new TestInfo(
-        "TEST_CLASS", killingTest, 0, Optional.empty(), 0));
+        "TEST_CLASS", killingTest, 0.0, Optional.empty(), 0));
     when(this.coverage.getTestsForClass(any(ClassName.class)))
     .thenReturn(tests);
     when(this.history.hasClassChanged(any(ClassName.class))).thenReturn(false);
@@ -192,8 +192,8 @@ public class IncrementalAnalyserTest {
 
     setHistoryForAllMutationsTo(DetectionStatus.KILLED, killingTestChanged, killingTestUnchanged );
 
-    final TestInfo testChanged = new TestInfo("TEST_CLASS_CHANGED", killingTestChanged, 0, Optional.empty(), 0);
-    final TestInfo testUnchanged = new TestInfo("TEST_CLASS_UNCHANGED", killingTestUnchanged, 0, Optional.empty(), 0);
+    final TestInfo testChanged = new TestInfo("TEST_CLASS_CHANGED", killingTestChanged, 0.0, Optional.empty(), 0);
+    final TestInfo testUnchanged = new TestInfo("TEST_CLASS_UNCHANGED", killingTestUnchanged, 0.0, Optional.empty(), 0);
 
     when(this.coverage.getTestsForClass(ClassName.fromString("clazz")))
             .thenReturn(asList(testChanged,testUnchanged));
@@ -224,7 +224,7 @@ public class IncrementalAnalyserTest {
     setHistoryForAllMutationsTo(DetectionStatus.KILLED, killingTest);
 
     final Collection<TestInfo> tests = Collections.singleton(new TestInfo(
-            "TEST_CLASS", killingTest, 0, Optional.empty(), 0));
+            "TEST_CLASS", killingTest, 0.0, Optional.empty(), 0));
     when(this.coverage.getTestsForClass(any(ClassName.class)))
             .thenReturn(tests);
     when(this.history.hasClassChanged(ClassName.fromString("clazz"))).thenReturn(
@@ -298,7 +298,7 @@ public class IncrementalAnalyserTest {
     final MutationDetails md4 = makeMutation("bumm");
 
     final String killingTest = "killerTest";
-    final TestInfo test = new TestInfo("TEST_CLASS", killingTest, 0, Optional.empty(), 0);
+    final TestInfo test = new TestInfo("TEST_CLASS", killingTest, 0.0, Optional.empty(), 0);
 
     when(this.history.getPreviousResult(md1.getId()))
             .thenReturn(Optional.of(
@@ -350,7 +350,7 @@ public class IncrementalAnalyserTest {
 
   private TestInfo testNamed(String name) {
     return new TestInfo(
-            "TEST_CLASS", name, 0, Optional.empty(), 0);
+            "TEST_CLASS", name, 0.0, Optional.empty(), 0);
   }
 
   private Matcher<MutationResult> withStatus(final DetectionStatus status) {

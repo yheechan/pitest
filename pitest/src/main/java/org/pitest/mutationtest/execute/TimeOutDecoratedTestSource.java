@@ -59,7 +59,8 @@ public class TimeOutDecoratedTestSource {
             .of(new MutationTimeoutDecorator(tu,
                 new TimeOutSystemExitSideEffect(
                     TimeOutDecoratedTestSource.this.r),
-                    TimeOutDecoratedTestSource.this.timeoutStrategy, a.getTime()));
+                    TimeOutDecoratedTestSource.this.timeoutStrategy, 
+                    (long) a.getTimeInMilliseconds())); // Use precise milliseconds for timeout
       }
       return Stream.empty();
     };

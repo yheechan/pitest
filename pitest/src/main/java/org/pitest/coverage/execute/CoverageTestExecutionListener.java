@@ -13,8 +13,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
-
 public class CoverageTestExecutionListener implements TestUnitExecutionListener {
 
     private static final Logger LOG = Log.getLogger();
@@ -50,19 +48,21 @@ public class CoverageTestExecutionListener implements TestUnitExecutionListener 
         }
 
         Long t0 = startTimes.remove(description);
-        int executionTime;
+        double executionTime;
         if (t0 == null) {
             LOG.warning("Recorded no start time. Test life cycle not as expected.");
             // substitute an unimportant, but high, time for this test, so it is unlikely to
             // be prioritised above others.
-            executionTime = 120_000;
+            executionTime = 120_000.0;
         } else {
-            executionTime = (int) NANOSECONDS.toMillis(System.nanoTime() - t0);
+            // Calculate execution time in milliseconds with full precision
+            long executionTimeNanos = System.nanoTime() - t0;
+            executionTime = executionTimeNanos / 1_000_000.0;
             if (executionTime < 0) {
                 LOG.warning("Recorded negative test time. Test life cycle not as expected.");
                 // substitute an unimportant, but high, time for this test, so it is unlikely to
                 // be prioritised above others.
-                executionTime = 120_000;
+                executionTime = 120_000.0; // 120 seconds in milliseconds
             }
         }
 

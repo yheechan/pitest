@@ -36,8 +36,8 @@ public class MutationStatusMapTest {
     this.details = aMutationDetail().withId(id.withIndex(1)).build();
     this.detailsTwo = aMutationDetail().withId(id.withIndex(2)).build();
 
-    TestInfo fooTest = new TestInfo("foo", "foo", 0, Optional.ofNullable(ClassName.fromString("com.foo")), 0);
-    TestInfo barTest = new TestInfo("bar", "bar", 0, Optional.ofNullable(ClassName.fromString("com.foo")), 0);
+    TestInfo fooTest = new TestInfo("foo", "foo", 0.0, Optional.ofNullable(ClassName.fromString("com.foo")), 0);
+    TestInfo barTest = new TestInfo("bar", "bar", 0.0, Optional.ofNullable(ClassName.fromString("com.foo")), 0);
     this.aSurvivedMutationDetails = aMutationDetail().withId(id.withIndex(3)).withTestsInOrder(Lists.asList(fooTest, new TestInfo[]{barTest})).build();
   }
 

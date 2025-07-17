@@ -11,8 +11,8 @@ public class BasicStatListener implements TestStatListener {
     private static final int SLOW_LIMIT = 2000;
 
     private int slowTestCount = 0;
-    private TestStat slowestTest = new TestStat(0, null);
-    private TestStat largestTest = new TestStat(0, null);
+    private TestStat slowestTest = new TestStat(0.0, null);
+    private TestStat largestTest = new TestStat(0.0, null);
 
     @Override
     public void accept(CoverageResult cr) {
@@ -48,15 +48,15 @@ public class BasicStatListener implements TestStatListener {
 }
 
 class TestStat {
-    private final int stat;
+    private final double stat;
     private final Description test;
 
-    TestStat(int stat, Description test) {
+    TestStat(double stat, Description test) {
         this.stat = stat;
         this.test = test;
     }
 
-    public int stat() {
+    public double stat() {
         return stat;
     }
     public Description test() {
