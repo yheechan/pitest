@@ -201,42 +201,6 @@ public class MutationCoverage {
     
     // Capture baseline results in main process for fullMatrixResearchMode
     if (this.data.isFullMatrixResearchMode()) {
-      // CoverageData cd = (CoverageData) coverageData;
-      
-      // // Get all coverage results once to avoid multiple calls
-      // List<org.pitest.coverage.CoverageResult> allCoverageResults = cd.getAllCoverageResults();
-      
-      // // === Single pass through coverage data to extract all test information ===
-      
-      // // Collect all unique tests from coverage data
-      // Set<TestInfo> allTests = new HashSet<>();
-      // for (BlockCoverage blockCov : cd.createCoverage()) {
-      //   Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockCov.getBlock());
-      //   allTests.addAll(testsForBlock);
-      // }
-
-      // // print test case metadata for debugging
-      // System.out.println("# of tests: " + allTests.size());
-
-      // // Get failing test descriptions and names
-      // Set<String> failingTestNames = cd.getFailingTestDescriptions().stream()
-      //     .map(desc -> desc.getQualifiedName())
-      //     .collect(java.util.stream.Collectors.toSet());
-      
-      // // print the name of failing tests
-      // for (String failingTestName : failingTestNames) {
-      //   System.out.println("Failing test: " + failingTestName);
-      // }
-
-      // System.out.println("Total number of failing tests: " + failingTestNames.size());
-
-      // // force terminate
-      // if (allTests.isEmpty()) {
-      //   LOG.warning("No test results found in coverage data");
-      //   createEmptyTestResultsCSV(this.data.getReportDir());
-      // }
-      // return emptyStatistics();
-
       // Capture both test case results and baseline results from coverage data in one pass
       testCaseMetadata = captureBaselineAndTestResultsFromCoverageData(coverageData);
       
@@ -1513,6 +1477,7 @@ public class MutationCoverage {
   /**
    * Calculate the number of lines covered by failing test cases.
    * This is used for time estimation metrics to show mutation density.
+   * OPTIMIZED: Single-pass algorithm with O(N) complexity instead of O(N³).
    */
   private int calculateLinesCoveredByFailingTests(CoverageDatabase coverageData) {
     if (!(coverageData instanceof CoverageData)) {
@@ -1533,50 +1498,14 @@ public class MutationCoverage {
         return 0;
       }
       
-      Set<String> linesCoveredByFailingTests = new HashSet<>();
+      LOG.fine("Calculating lines covered by " + failingTestNames.size() + " failing tests using optimized single-pass algorithm");
       
-      // Analyze line coverage by failing tests
-      for (ClassName className : this.code.getCodeUnderTestNames()) {
-        Set<ClassLine> coveredLines = cd.getCoveredLines(className);
-        
-        for (ClassLine line : coveredLines) {
-          int lineNumber = line.getLineNumber();
-          boolean coveredByFailingTest = false;
-          
-          // Check all block coverage to find blocks that cover this specific line
-          for (BlockCoverage blockCov : cd.createCoverage()) {
-            BlockLocation blockLocation = blockCov.getBlock();
-            
-            // Only check blocks from the same class
-            if (blockLocation.getLocation().getClassName().equals(className)) {
-              // Get the lines covered by this block
-              Set<Integer> blockLines = getBlockLines(cd, blockLocation);
-              
-              // Check if this block covers the current line
-              if (blockLines.contains(lineNumber)) {
-                // Get the tests that cover this specific block
-                Collection<TestInfo> testsForBlock = cd.getTestsForBlockLocation(blockLocation);
-                
-                // Check if any of the tests for this block are failing tests
-                boolean blockCoveredByFailingTest = testsForBlock.stream()
-                    .anyMatch(test -> failingTestNames.contains(test.getName()));
-                
-                if (blockCoveredByFailingTest) {
-                  coveredByFailingTest = true;
-                  break;
-                }
-              }
-            }
-          }
-          
-          if (coveredByFailingTest) {
-            linesCoveredByFailingTests.add(className.asJavaName() + ":" + lineNumber);
-          }
-        }
-      }
+      // OPTIMIZATION: Use the same optimized approach from getLinesExecutedByFailingTests
+      // This reuses existing optimized code and avoids duplicate implementation
+      Set<String> linesExecutedByFailingTests = getLinesExecutedByFailingTests(cd, failingTestNames);
       
-      LOG.info("Found " + linesCoveredByFailingTests.size() + " lines covered by failing tests");
-      return linesCoveredByFailingTests.size();
+      LOG.info("Found " + linesExecutedByFailingTests.size() + " lines covered by failing tests");
+      return linesExecutedByFailingTests.size();
       
     } catch (Exception e) {
       LOG.warning("Failed to calculate lines covered by failing tests: " + e.getMessage());
