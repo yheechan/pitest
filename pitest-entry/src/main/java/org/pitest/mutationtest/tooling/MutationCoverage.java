@@ -739,14 +739,6 @@ public class MutationCoverage {
              + "', lineNumber=" + lineNumber + "}";
     }
   }
-
-  /**
-   * Extract simple filename from fully qualified class name.
-   */
-  private String extractFileName(String className) {
-    String simpleName = className.substring(className.lastIndexOf('.') + 1);
-    return simpleName + ".java";
-  }
   
   /**
    * Format method signature for display with full class name, method name, readable parameters, and line number.

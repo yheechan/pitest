@@ -43,10 +43,9 @@ public class ProjectClassPaths {
   }
 
   public Collection<ClassName> test() {
-    return FCollection.filter(
-        this.classPath.getComponent(this.pathFilter.getTestFilter())
-        .findClasses(this.classFilter.getTest()),
-        this.classFilter.getTest()).stream()
+    return this.classPath.getComponent(this.pathFilter.getTestFilter())
+        .findClasses(this.classFilter.getTest()).stream()
+        .filter(this.classFilter.getTest())
         .map(ClassName::fromString)
         .collect(Collectors.toList());
   }

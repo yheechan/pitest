@@ -206,6 +206,20 @@ public class JUnitCustomRunnerTestUnitFinderTest {
     public void testStuff() {
 
     }
+    
+    public void testOtherStuff() {
+
+    }
+    
+    public void testMoreStuff() {
+
+    }
+  }
+
+  @Test
+  public void shouldFindAllTestMethodsInJUnit3Class() {
+    final Collection<TestUnit> actual = findWithTestee(JUnit3Test.class);
+    assertEquals(3, actual.size());
   }
 
   public static class HasBeforeClassAnnotation {
