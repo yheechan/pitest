@@ -872,7 +872,8 @@ public class MutationCoverage {
           org.pitest.bytecode.analysis.ClassTree classTree = 
               org.pitest.bytecode.analysis.ClassTree.fromBytes(classBytes.get());
           
-          String fileName = extractFileName(javaClassName);
+          // Convert fully qualified class name to file path (org.example.MyClass -> org/example/MyClass.java)
+          String fileName = javaClassName.replace('.', '/') + ".java";
           
           // Map line numbers to methods
           Map<Integer, String> lineToMethod = new HashMap<>();
