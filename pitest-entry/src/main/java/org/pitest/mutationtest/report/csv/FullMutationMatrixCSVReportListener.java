@@ -329,19 +329,13 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         List<String> killingTests = mutation.getKillingTests();
         List<String> survivingTests = mutation.getSucceedingTests();
         
-        String f2pBitSequence = createLegacyTransitionBitSequence(killingTests, survivingTests, "F2P");
-        String p2fBitSequence = createLegacyTransitionBitSequence(killingTests, survivingTests, "P2F");
-        String p2pBitSequence = createLegacyTransitionBitSequence(killingTests, survivingTests, "P2P");
-        String f2fBitSequence = createLegacyTransitionBitSequence(killingTests, survivingTests, "F2F");
+        String resultTransitionBitSequence = createLegacyResultTransitionBitSequence(killingTests, survivingTests);
         
         // Exception transitions are not available in legacy data, use empty sequences
         String emptyBitSequence = createEmptyBitSequence();
         
         // Add bit sequences to row
-        row.append(f2pBitSequence).append(",");
-        row.append(p2fBitSequence).append(",");
-        row.append(p2pBitSequence).append(",");
-        row.append(f2fBitSequence).append(",");
+        row.append(resultTransitionBitSequence).append(",");
         row.append(emptyBitSequence).append(","); // exception_type_transition
         row.append(emptyBitSequence).append(","); // exception_msg_transition
         row.append(emptyBitSequence).append(","); // stacktrace_transition
@@ -355,18 +349,25 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
     }
 
     /**
-     * Create a bit sequence for legacy transitions based on killing/surviving test lists.
+     * Create a bit sequence for result transitions based on killing/surviving test lists.
+     * For NO_COVERAGE mutations or cases where no tests executed, returns all zeros.
      */
-    private String createLegacyTransitionBitSequence(List<String> killingTests, List<String> survivingTests, String transitionType) {
+    private String createLegacyResultTransitionBitSequence(List<String> killingTests, List<String> survivingTests) {
         if (orderedTestNames.isEmpty()) {
             return ""; // No test metadata available
+        }
+        
+        // If no tests killed or survived the mutation (e.g., NO_COVERAGE), return all zeros
+        if ((killingTests == null || killingTests.isEmpty())
+            && (survivingTests == null || survivingTests.isEmpty())) {
+            return createEmptyBitSequence(); // All zeros - no tests executed
         }
         
         StringBuilder bitSequence = new StringBuilder();
         
         for (String testName : orderedTestNames) {
             String legacyTransition = getLegacyResultTransition(testName, killingTests, survivingTests);
-            bitSequence.append(legacyTransition.equals(transitionType) ? "1" : "0");
+            bitSequence.append((legacyTransition.equals("F2P") || legacyTransition.equals("P2F")) ? "1" : "0");
         }
         
         return bitSequence.toString();

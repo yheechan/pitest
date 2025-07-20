@@ -53,7 +53,11 @@ public class MutationTestUnit implements MutationAnalysisUnit {
     mutations.setStatusForMutations(this.availableMutations,
         DetectionStatus.NOT_STARTED);
 
-    mutations.markUncoveredMutations();
+    // In research mode, we run all tests against all mutations regardless of static coverage,
+    // so don't mark mutations as NO_COVERAGE based on static analysis
+    if (!this.workerFactory.isFullMatrixResearchMode()) {
+      mutations.markUncoveredMutations();
+    }
 
     runTestsInSeperateProcess(mutations);
 
