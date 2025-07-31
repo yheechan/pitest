@@ -71,10 +71,44 @@ public class WorkerFactory {
         Log.verbosity(), this.fullMutationMatrix, this.fullMatrixResearchMode, this.pitConfig, this.reportDir,
         this.testCaseMetadata);
 
-    final ProcessArgs args = ProcessArgs.withClassPath(this.classPath)
-        .andLaunchOptions(this.config.getLaunchOptions())
+    ProcessArgs args = ProcessArgs.withClassPath(this.classPath)
         .andBaseDir(this.baseDir).andStdout(captureStdOutIfVerbose())
         .andStderr(captureStdErrIfVerbose());
+    
+    // Add special memory handling for full matrix research mode
+    if (this.fullMatrixResearchMode) {
+      // Get existing JVM args and filter out memory settings
+      final java.util.List<String> existingArgs = this.config.getLaunchOptions().getChildJVMArgs();
+      final java.util.List<String> filteredArgs = existingArgs.stream()
+          .filter(opt -> !opt.startsWith("-Xmx") && !opt.startsWith("-Xms"))
+          .collect(java.util.stream.Collectors.toList());
+      
+      // Add memory-optimized settings for large test suites
+      final java.util.List<String> memoryOptimizedArgs = new java.util.ArrayList<>(filteredArgs);
+      memoryOptimizedArgs.addAll(java.util.Arrays.asList(
+          "-Xmx16g",  // Increase max heap to 16GB for large test suites
+          "-Xms4g",  // Increase initial heap to 4GB
+          "-XX:+UseG1GC",  // Use G1 GC for better large heap performance
+          "-XX:MaxGCPauseMillis=200",  // Limit GC pause times
+          "-XX:G1HeapRegionSize=32m",  // Larger heap regions for large objects
+          "-XX:+UnlockExperimentalVMOptions",
+          "-XX:+UseStringDeduplication", // Reduce memory for duplicate strings
+          "-XX:StringDeduplicationAgeThreshold=1"
+      ));
+      
+      // Create new LaunchOptions with optimized memory settings
+      final org.pitest.process.LaunchOptions optimizedLaunchOptions = 
+          new org.pitest.process.LaunchOptions(
+              this.config.getLaunchOptions().getJavaAgentFinder(),
+              this.config.getLaunchOptions().getJavaExecutableLocator(),
+              memoryOptimizedArgs,
+              this.config.getLaunchOptions().getEnvironmentVariables()
+          );
+      
+      args = args.andLaunchOptions(optimizedLaunchOptions);
+    } else {
+      args = args.andLaunchOptions(this.config.getLaunchOptions());
+    }
 
     final SocketFinder sf = new SocketFinder();
     return new MutationTestProcess(

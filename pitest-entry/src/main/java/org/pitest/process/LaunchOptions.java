@@ -49,6 +49,10 @@ public class LaunchOptions {
     return this.childJVMArgs;
   }
 
+  public JavaExecutableLocator getJavaExecutableLocator() {
+    return this.javaExecutable;
+  }
+
   public String getJavaExecutable() {
     return this.javaExecutable.javaExecutable();
   }

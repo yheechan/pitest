@@ -172,7 +172,17 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         row.append(escapeCsv(status)).append(",");
         row.append(numTestsRun);
         row.append("\n");
-        out.write(row.toString());
+        
+        // Write the row and immediately flush to prevent buffering issues with very long rows
+        try {
+            out.write(row.toString());
+            out.flush(); // Force immediate write to prevent buffer overflow
+        } catch (IOException e) {
+            System.err.println("ERROR: Failed to write mutant row for mutant " + mutantId + ": " + e.getMessage());
+            System.err.println("Row length: " + row.length() + " characters");
+            System.err.println("Result transition bit sequence length: " + resultTransitionBitSequence.length());
+            throw e; // Re-throw to maintain error handling behavior
+        }
     }
 
     /**
@@ -345,7 +355,16 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         row.append(numTestsRun);
         
         row.append("\n");
-        out.write(row.toString());
+        
+        // Write the row and immediately flush to prevent buffering issues with very long rows
+        try {
+            out.write(row.toString());
+            out.flush(); // Force immediate write to prevent buffer overflow
+        } catch (IOException e) {
+            System.err.println("ERROR: Failed to write legacy mutant row for mutant " + mutantId + ": " + e.getMessage());
+            System.err.println("Row length: " + row.length() + " characters");
+            throw e; // Re-throw to maintain error handling behavior
+        }
     }
 
     /**

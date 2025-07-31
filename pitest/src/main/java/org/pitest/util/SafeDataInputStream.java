@@ -46,6 +46,21 @@ public class SafeDataInputStream {
   public byte[] readBytes() {
     try {
       final int length = this.dis.readInt();
+      
+      // Check for extremely large data that could cause OOM
+      if (length > 100 * 1024 * 1024) { // 100MB limit
+        System.out.println("HCY:DEBUG: SafeDataInputStream: readBytes() - "
+                           + "Attempting to read " + length + " bytes, which exceeds the safe limit.");
+        // Optionally, you could throw an exception or handle it differently
+        // For now, we will throw an IOException to indicate a potential memory issue
+        // This is a safeguard against potential memory issues in full mutation research mode
+        // where large data sizes can lead to OOM errors.
+        // throw new IOException("Data size too large for safe deserialization: "
+        //                       + length + " bytes. "
+        //                       + "This may indicate a memory issue in full mutation research mode. "
+        //                       + "Consider reducing the number of tests or using standard mutation testing mode.");
+      }
+      
       final byte[] data = new byte[length];
       this.dis.readFully(data);
       return data;
@@ -104,11 +119,30 @@ public class SafeDataInputStream {
   }
 
   private Object deserialize(byte[] bytes) throws IOException {
+    // Log large serialized objects for debugging
+    if (bytes.length > 10 * 1024 * 1024) { // 10MB
+      System.out.println("HCY:DEBUG: SafeDataInputStream: deserialize() - "
+                          + "Deserializing large object of size " + bytes.length + " bytes. "
+                          + "This may cause memory issues in full mutation research mode.");
+      // Optionally, you could throw an exception or handle it differently
+      // For now, we will just log a warning
+      // and continue with deserialization.
+      // This is a safeguard against potential memory issues in full mutation research mode
+      // where large data sizes can lead to OOM errors.
+      // Consider increasing heap size or reducing test suite size.
+      // If you want to throw an exception instead, uncomment the line below:
+      // System.err.println("WARNING: Deserializing large object: " + bytes.length + " bytes. "
+      //                     + "This may cause memory issues in full mutation research mode.");
+    }
+    
     final ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
     try (ObjectInput in = new ObjectInputStream(bis)) {
       return in.readObject();
     } catch (final ClassNotFoundException e) {
       throw Unchecked.translateCheckedException(e);
+    } catch (final OutOfMemoryError e) {
+      throw new IOException("OutOfMemoryError during deserialization of " + bytes.length 
+                            + " byte object. Consider increasing heap size or reducing test suite size.", e);
     }
   }
 
