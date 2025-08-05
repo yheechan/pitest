@@ -33,6 +33,8 @@ public class WorkerFactory {
   private final EngineArguments       args;
   private final String                reportDir;
   private final java.util.Map<String, org.pitest.mutationtest.execute.TestCaseMetadata> testCaseMetadata;
+  private final int                   numberOfThreads;
+  private final int                   mutationUnitSize;
 
   @SuppressWarnings("unchecked")
   public WorkerFactory(final File baseDir,
@@ -45,7 +47,9 @@ public class WorkerFactory {
       final boolean fullMatrixResearchMode,
       final String classPath,
       final String reportDir,
-      final java.util.Map testCaseMetadata) {
+      final java.util.Map testCaseMetadata,
+      final int numberOfThreads,
+      final int mutationUnitSize) {
     this.pitConfig = pitConfig;
     this.timeoutStrategy = timeoutStrategy;
     this.verbosity = verbosity;
@@ -56,6 +60,8 @@ public class WorkerFactory {
     this.config = mutationConfig;
     this.args = args;
     this.reportDir = reportDir;
+    this.numberOfThreads = numberOfThreads;
+    this.mutationUnitSize = mutationUnitSize;
     this.testCaseMetadata = testCaseMetadata != null 
         ? new java.util.HashMap<String, org.pitest.mutationtest.execute.TestCaseMetadata>(testCaseMetadata) 
         : new java.util.HashMap<String, org.pitest.mutationtest.execute.TestCaseMetadata>();
@@ -79,24 +85,40 @@ public class WorkerFactory {
     if (this.fullMatrixResearchMode) {
       // Get existing JVM args and filter out memory settings
       final java.util.List<String> existingArgs = this.config.getLaunchOptions().getChildJVMArgs();
+      
+      Log.getLogger().info("WorkerFactory: Applying smart memory allocation for mutation testing workers");
+      
+      // Calculate optimal memory allocation for workers based on system resources and thread count
+      MemoryAllocation memAlloc = calculateOptimalMemoryAllocation();
+      
+      Log.getLogger().info("Memory allocation strategy for 32GB system:");
+      Log.getLogger().info("  Total system memory: " + memAlloc.systemMemoryMB + "MB");
+      Log.getLogger().info("  Main process memory: " + memAlloc.mainProcessMemoryMB + "MB");
+      Log.getLogger().info("  Reserved for OS: " + memAlloc.reservedForOSMB + "MB");
+      Log.getLogger().info("  Available for workers: " + memAlloc.availableForWorkersMB + "MB");
+      Log.getLogger().info("  Thread count: " + memAlloc.threadCount);
+      Log.getLogger().info("  Worker memory per thread: " + memAlloc.workerMemoryMB + "MB");
+      Log.getLogger().info("  Total worker memory: " + (memAlloc.workerMemoryMB * memAlloc.threadCount) + "MB");
+      
+      // Filter out any existing memory settings to avoid conflicts
       final java.util.List<String> filteredArgs = existingArgs.stream()
           .filter(opt -> !opt.startsWith("-Xmx") && !opt.startsWith("-Xms"))
           .collect(java.util.stream.Collectors.toList());
       
-      // Add memory-optimized settings for large test suites
+      // Add calculated memory settings for workers
       final java.util.List<String> memoryOptimizedArgs = new java.util.ArrayList<>(filteredArgs);
-      memoryOptimizedArgs.addAll(java.util.Arrays.asList(
-          "-Xmx16g",  // Increase max heap to 16GB for large test suites
-          "-Xms4g",  // Increase initial heap to 4GB
-          "-XX:+UseG1GC",  // Use G1 GC for better large heap performance
-          "-XX:MaxGCPauseMillis=200",  // Limit GC pause times
-          "-XX:G1HeapRegionSize=32m",  // Larger heap regions for large objects
-          "-XX:+UnlockExperimentalVMOptions",
-          "-XX:+UseStringDeduplication", // Reduce memory for duplicate strings
-          "-XX:StringDeduplicationAgeThreshold=1"
-      ));
+      memoryOptimizedArgs.addAll(memAlloc.toJvmArgs());
       
-      // Create new LaunchOptions with optimized memory settings
+      Log.getLogger().info("Applied intelligent memory optimizations for workers based on system resources");
+      Log.getLogger().info("Worker JVM settings: "
+                         + String.join(" ", memoryOptimizedArgs.stream()
+                                         .filter(arg -> arg.startsWith("-X") || arg.startsWith("-XX:"))
+                                         .toArray(String[]::new)));
+      
+      // Safety checks and recommendations
+      memAlloc.logSafetyWarnings();
+      
+      // Create new LaunchOptions with the optimized memory settings
       final org.pitest.process.LaunchOptions optimizedLaunchOptions = 
           new org.pitest.process.LaunchOptions(
               this.config.getLaunchOptions().getJavaAgentFinder(),
@@ -133,5 +155,139 @@ public class WorkerFactory {
 
   public boolean isFullMatrixResearchMode() {
     return this.fullMatrixResearchMode;
+  }
+  
+  /**
+   * Calculate optimal memory allocation for workers based on system resources and thread count
+   */
+  private MemoryAllocation calculateOptimalMemoryAllocation() {
+    Runtime sysRuntime = Runtime.getRuntime();
+    long mainProcessMemoryMB = sysRuntime.maxMemory() / (1024 * 1024);
+    
+    // For 32GB systems, use more precise calculations
+    long systemMemoryMB = 32768; // Assume 32GB system (can be made configurable)
+    long reservedForOSMB = 4096; // Reserve 4GB for OS and other processes
+    long availableForPitMB = systemMemoryMB - reservedForOSMB; // 28GB available
+    long availableForWorkersMB = availableForPitMB - mainProcessMemoryMB;
+    
+    // Calculate worker memory based on thread count and available memory
+    int threadCount = this.numberOfThreads;
+    long workerMemoryMB;
+    
+    // Thread-based allocation strategy for 32GB systems
+    if (threadCount == 1) {
+      // Single thread: can use most remaining memory
+      workerMemoryMB = Math.min(8192, availableForWorkersMB); // Max 8GB for single worker
+    } else if (threadCount <= 4) {
+      // Low thread count (2-4): generous memory per worker
+      workerMemoryMB = Math.max(4096, availableForWorkersMB / threadCount);
+      workerMemoryMB = Math.min(workerMemoryMB, 6144); // Max 6GB per worker
+    } else if (threadCount <= 8) {
+      // Medium thread count (5-8): balanced allocation
+      workerMemoryMB = Math.max(2048, availableForWorkersMB / threadCount);
+      workerMemoryMB = Math.min(workerMemoryMB, 4096); // Max 4GB per worker
+    } else if (threadCount <= 16) {
+      // High thread count (9-16): conservative allocation
+      workerMemoryMB = Math.max(1536, availableForWorkersMB / threadCount);
+      workerMemoryMB = Math.min(workerMemoryMB, 2048); // Max 2GB per worker
+    } else {
+      // Very high thread count (17+): minimal allocation
+      workerMemoryMB = Math.max(1024, availableForWorkersMB / threadCount);
+      workerMemoryMB = Math.min(workerMemoryMB, 1536); // Max 1.5GB per worker
+    }
+    
+    // Additional optimization for mutation unit size 1 (very small batches)
+    if (this.mutationUnitSize == 1 && threadCount > 8) {
+      // For unit size 1 with many threads, we can be more aggressive
+      workerMemoryMB = Math.max(1024, workerMemoryMB);
+      Log.getLogger().info("Mutation unit size 1 detected - optimizing for small batch processing");
+    }
+    
+    return new MemoryAllocation(systemMemoryMB, mainProcessMemoryMB, reservedForOSMB, 
+                               availableForWorkersMB, threadCount, workerMemoryMB);
+  }
+  
+  /**
+   * Inner class to encapsulate memory allocation calculations and provide consistent behavior
+   */
+  private static class MemoryAllocation {
+    final long systemMemoryMB;
+    final long mainProcessMemoryMB;
+    final long reservedForOSMB;
+    final long availableForWorkersMB;
+    final int threadCount;
+    final long workerMemoryMB;
+    
+    MemoryAllocation(long systemMemoryMB, long mainProcessMemoryMB, long reservedForOSMB,
+                    long availableForWorkersMB, int threadCount, long workerMemoryMB) {
+      this.systemMemoryMB = systemMemoryMB;
+      this.mainProcessMemoryMB = mainProcessMemoryMB;
+      this.reservedForOSMB = reservedForOSMB;
+      this.availableForWorkersMB = availableForWorkersMB;
+      this.threadCount = threadCount;
+      this.workerMemoryMB = workerMemoryMB;
+    }
+    
+    java.util.List<String> toJvmArgs() {
+      java.util.List<String> args = new java.util.ArrayList<>();
+      args.add("-Xmx" + workerMemoryMB + "m");   // Calculated worker heap
+      args.add("-Xms" + (workerMemoryMB / 4) + "m");   // Start with 25% of max heap
+      args.add("-XX:+UseG1GC");
+      args.add("-XX:MaxGCPauseMillis=100"); // More frequent GC to prevent large pauses
+      args.add("-XX:G1HeapRegionSize=16m"); // Smaller regions for better memory management
+      args.add("-XX:+UseStringDeduplication"); // Reduce memory for bit sequences
+      args.add("-XX:StringDeduplicationAgeThreshold=1");
+      args.add("-XX:MaxMetaspaceSize=512m"); // Strict metaspace limit
+      args.add("-XX:+DisableExplicitGC"); // Prevent manual GC calls that might cause issues
+      args.add("-XX:+UseCompressedOops"); // Reduce pointer overhead
+      args.add("-XX:+UseCompressedClassPointers");
+      args.add("-XX:G1MixedGCCountTarget=8"); // More aggressive mixed GC
+      args.add("-XX:G1HeapWastePercent=5"); // Lower waste threshold
+      args.add("-XX:G1MixedGCLiveThresholdPercent=25"); // More aggressive cleanup
+      args.add("-XX:G1OldCSetRegionThresholdPercent=5"); // Smaller old gen collection sets
+      return args;
+    }
+    
+    void logSafetyWarnings() {
+      // Safety check: warn if total memory usage might be too high
+      long totalMemoryUsageMB = mainProcessMemoryMB + (workerMemoryMB * threadCount);
+      if (totalMemoryUsageMB > systemMemoryMB * 0.9) {
+        Log.getLogger().severe("CRITICAL: Total memory usage (" + totalMemoryUsageMB + "MB) would exceed "
+                              + "90% of system memory (" + systemMemoryMB + "MB)");
+        Log.getLogger().severe("This configuration will likely cause system instability or OOM killer activation");
+        
+        // Provide specific recommendations
+        if (threadCount > 8) {
+          Log.getLogger().severe("RECOMMENDATION: For " + threadCount + " threads on 32GB system:");
+          Log.getLogger().severe("  - Use main process -Xmx16g (instead of " + (mainProcessMemoryMB / 1024) + "g)");
+          Log.getLogger().severe("  - This will allow workers to use ~1GB each");
+          Log.getLogger().severe("  - Or reduce threads to 4-8 for better memory per worker");
+        }
+      } else {
+        Log.getLogger().info("Memory allocation looks good: " + totalMemoryUsageMB + "MB total ("
+                            + ((totalMemoryUsageMB * 100) / systemMemoryMB) + "% of system memory)");
+      }
+      
+      // Provide optimization recommendations for high thread counts
+      if (threadCount > 8 && systemMemoryMB <= 32768) { // 32GB or less
+        Log.getLogger().warning("High thread count (" + threadCount + ") on 32GB system detected");
+        Log.getLogger().warning("Each worker will get only " + workerMemoryMB + "MB - this may cause frequent OOM errors");
+        Log.getLogger().warning("Consider reducing threads to 4-8 for more stable execution");
+      }
+      
+      // Log current memory status
+      Runtime runtime = Runtime.getRuntime();
+      long maxMemory = runtime.maxMemory() / (1024 * 1024); // MB
+      long totalMemory = runtime.totalMemory() / (1024 * 1024);
+      long freeMemory = runtime.freeMemory() / (1024 * 1024);
+      long usedMemory = totalMemory - freeMemory;
+      
+      Log.getLogger().info("Main process memory status - Max: " + maxMemory + "MB, Used: " + usedMemory + "MB, Free: " + freeMemory + "MB");
+      
+      if (usedMemory > maxMemory * 0.8) {
+        Log.getLogger().warning("Main process is already using " + ((usedMemory * 100) / maxMemory)
+                               + "% of available memory. Worker processes may face memory pressure.");
+      }
+    }
   }
 }
