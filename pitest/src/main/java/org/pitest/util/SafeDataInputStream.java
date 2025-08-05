@@ -121,19 +121,39 @@ public class SafeDataInputStream {
   private Object deserialize(byte[] bytes) throws IOException {
     // Log large serialized objects for debugging
     if (bytes.length > 10 * 1024 * 1024) { // 10MB
+      Runtime runtime = Runtime.getRuntime();
+      long totalMemory = runtime.totalMemory();
+      long freeMemory = runtime.freeMemory();
+      long maxMemory = runtime.maxMemory();
+      long usedMemory = totalMemory - freeMemory;
+      
       System.out.println("HCY:DEBUG: SafeDataInputStream: deserialize() - "
                           + "Deserializing large object of size " + bytes.length + " bytes. "
-                          + "This may cause memory issues in full mutation research mode.");
-      // Optionally, you could throw an exception or handle it differently
-      // For now, we will just log a warning
-      // and continue with deserialization.
-      // This is a safeguard against potential memory issues in full mutation research mode
-      // where large data sizes can lead to OOM errors.
-      // Consider increasing heap size or reducing test suite size.
-      // If you want to throw an exception instead, uncomment the line below:
-      // System.err.println("WARNING: Deserializing large object: " + bytes.length + " bytes. "
-      //                     + "This may cause memory issues in full mutation research mode.");
+                          + "Memory: Used=" + (usedMemory / 1024 / 1024) + "MB, "
+                          + "Free=" + (freeMemory / 1024 / 1024) + "MB, "
+                          + "Total=" + (totalMemory / 1024 / 1024) + "MB, "
+                          + "Max=" + (maxMemory / 1024 / 1024) + "MB");
+
+      // Force GC before large deserialization
+      System.gc();
+      
+      // Check if we're approaching memory limits
+      if (usedMemory > maxMemory * 0.85) {
+        System.err.println("HCY:WARNING: Memory usage critical! Used " 
+                            + (usedMemory * 100 / maxMemory) + "% of max heap. "
+                            + "Consider reducing --mutationUnitSize.");
+      }
     }
+    
+    // // Additional safety check before attempting deserialization
+    // Runtime runtime = Runtime.getRuntime();
+    // long availableMemory = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory());
+    // if (bytes.length * 3 > availableMemory) { // 3x safety factor for deserialization overhead
+    //   throw new IOException("Insufficient memory for safe deserialization. " +
+    //                       "Object size: " + (bytes.length/1024/1024) + "MB, " +
+    //                       "Available memory: " + (availableMemory/1024/1024) + "MB. " +
+    //                       "Reduce --mutationUnitSize to continue.");
+    // }
     
     final ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
     try (ObjectInput in = new ObjectInputStream(bis)) {
