@@ -489,6 +489,15 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
             out.close();
             System.out.println("Memory optimization: Completed mutation testing. Total mutations processed: " + processedMutationCount);
             System.out.println("Memory optimization: Total estimated memory freed: " + formatMemorySize(memoryFreedEstimate));
+            
+            // Memory optimization: Clear accumulated mutation summaries after writing
+            int summariesCleared = mutationSummaries.size();
+            mutationSummaries.clear();
+            System.out.println("Memory optimization: Cleared " + summariesCleared + " mutation summaries from memory");
+            
+            // Final garbage collection suggestion after all processing is complete
+            System.gc();
+            
         } catch (IOException e) {
             throw new RuntimeException("Error closing CSV file", e);
         }

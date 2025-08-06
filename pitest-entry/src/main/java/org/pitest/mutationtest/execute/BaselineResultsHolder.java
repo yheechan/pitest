@@ -151,4 +151,27 @@ public class BaselineResultsHolder {
     public static synchronized boolean hasTestCaseMetadata() {
         return !testCaseMetadata.isEmpty();
     }
+
+    /**
+     * Get memory usage statistics for monitoring
+     */
+    public static synchronized String getMemoryStats() {
+        return String.format("BaselineResultsHolder memory: %d baseline results, %d failing test lines, %d test metadata entries",
+            baselineResults.size(), failingTestLines.size(), testCaseMetadata.size());
+    }
+
+    /**
+     * Clear all data to free memory when no longer needed.
+     * WARNING: Only call this when you're sure the data won't be needed again.
+     */
+    public static synchronized void clearAllData() {
+        int totalSize = baselineResults.size() + failingTestLines.size() + testCaseMetadata.size();
+        baselineResults.clear();
+        failingTestLines.clear();
+        failingTestLinesByClass.clear();
+        testCaseIdMapping.clear();
+        testCaseMetadata.clear();
+        
+        System.out.println("INFO: BaselineResultsHolder cleared " + totalSize + " entries to free memory");
+    }
 }

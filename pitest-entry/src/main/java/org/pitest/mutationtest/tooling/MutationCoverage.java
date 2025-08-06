@@ -109,8 +109,23 @@ public class MutationCoverage {
    * Should be called after fullMatrixResearchMode processing is complete.
    */
   private void clearOptimizationCaches() {
+    int cacheSize = blockLinesCache.size();
     blockLinesCache.clear();
-    LOG.fine("Cleared optimization caches to free memory");
+    
+    if (this.data.isFullMatrixResearchMode()) {
+      LOG.info("Cleared " + cacheSize + " entries from blockLinesCache for memory optimization");
+      
+      // In fullMatrixResearchMode, also clear any other potential memory-consuming caches
+      try {
+        // Force garbage collection to clean up cleared cache entries
+        System.gc();
+        LOG.fine("Suggested garbage collection after clearing optimization caches");
+      } catch (Exception e) {
+        LOG.fine("Error during cache cleanup: " + e.getMessage());
+      }
+    } else {
+      LOG.fine("Cleared optimization caches to free memory");
+    }
   }
 
   public MutationCoverage(final MutationStrategies strategies,
@@ -241,8 +256,20 @@ public class MutationCoverage {
     final MutationAnalysisExecutor mae = new MutationAnalysisExecutor(
         numberOfThreads(), resultInterceptor(), config);
     this.timings.registerStart(Timings.Stage.RUN_MUTATION_TESTS);
+    
+    // Log memory usage before starting mutation analysis
+    logMemoryUsageWithContext("Before starting mutation analysis execution");
+    
     mae.run(tus);
     this.timings.registerEnd(Timings.Stage.RUN_MUTATION_TESTS);
+
+    // Log memory usage after mutation analysis and force cleanup
+    logMemoryUsageWithContext("After mutation analysis completed");
+    
+    // Force garbage collection after analysis to clean up accumulated mutation results
+    System.gc();
+    
+    logMemoryUsageWithContext("After forced garbage collection");
 
     LOG.info("Completed in " + timeSpan(t0));
 
@@ -1503,6 +1530,31 @@ public class MutationCoverage {
     } catch (Exception e) {
       LOG.warning("Failed to calculate lines covered by failing tests: " + e.getMessage());
       return 0;
+    }
+  }
+
+  /**
+   * Log memory usage with context for debugging memory issues in fullMatrixResearchMode
+   */
+  private void logMemoryUsageWithContext(String context) {
+    Runtime runtime = Runtime.getRuntime();
+    long totalMemory = runtime.totalMemory() / (1024 * 1024); // MB
+    long freeMemory = runtime.freeMemory() / (1024 * 1024);   // MB
+    long usedMemory = totalMemory - freeMemory;
+    long maxMemory = runtime.maxMemory() / (1024 * 1024);     // MB
+    
+    if (this.data.isFullMatrixResearchMode()) {
+      LOG.info(String.format("FullMatrixResearchMode Memory [%s]: Used=%dMB, Free=%dMB, Total=%dMB, Max=%dMB", 
+          context, usedMemory, freeMemory, totalMemory, maxMemory));
+      
+      // Warn if memory usage is getting high (>85% of max heap) in research mode
+      if (usedMemory > maxMemory * 0.85) {
+        LOG.warning(String.format("CRITICAL MEMORY WARNING in FullMatrixResearchMode: Using %dMB of %dMB (%.1f%%) - Consider increasing heap size", 
+            usedMemory, maxMemory, (usedMemory * 100.0 / maxMemory)));
+      }
+    } else {
+      LOG.fine(String.format("Memory [%s]: Used=%dMB, Free=%dMB, Total=%dMB, Max=%dMB", 
+          context, usedMemory, freeMemory, totalMemory, maxMemory));
     }
   }
 }

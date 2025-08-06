@@ -59,9 +59,26 @@ public class MutationTestUnit implements MutationAnalysisUnit {
       mutations.markUncoveredMutations();
     }
 
+    // Log memory usage before mutation testing for fullMatrixResearchMode
+    if (this.workerFactory.isFullMatrixResearchMode()) {
+      logMemoryUsage("Before processing " + this.availableMutations.size() + " mutations");
+    }
+
     runTestsInSeperateProcess(mutations);
 
-    return reportResults(mutations);
+    // Log memory usage after mutation testing but before reporting
+    if (this.workerFactory.isFullMatrixResearchMode()) {
+      logMemoryUsage("After mutation testing, before reporting (" + mutations.getResultCount() + " results in memory)");
+    }
+
+    MutationMetaData results = reportResults(mutations);
+    
+    // Log memory usage after clearing results
+    if (this.workerFactory.isFullMatrixResearchMode()) {
+      logMemoryUsage("After clearing mutation results from memory");
+    }
+    
+    return results;
   }
 
   @Override
@@ -151,7 +168,34 @@ public class MutationTestUnit implements MutationAnalysisUnit {
   }
 
   private static MutationMetaData reportResults(final MutationStatusMap mutationsMap) {
-    return new MutationMetaData(mutationsMap.createMutationResults());
+    // Create results before clearing to ensure data integrity
+    MutationMetaData results = new MutationMetaData(mutationsMap.createMutationResults());
+    
+    // Critical memory optimization: Clear the mutation map immediately after creating results
+    // This prevents memory accumulation in fullMatrixResearchMode where detailed results can be large
+    mutationsMap.clearResultsAfterReporting();
+    
+    return results;
+  }
+
+  /**
+   * Log current memory usage for debugging memory issues in fullMatrixResearchMode
+   */
+  private static void logMemoryUsage(String context) {
+    Runtime runtime = Runtime.getRuntime();
+    long totalMemory = runtime.totalMemory() / (1024 * 1024); // MB
+    long freeMemory = runtime.freeMemory() / (1024 * 1024);   // MB  
+    long usedMemory = totalMemory - freeMemory;
+    long maxMemory = runtime.maxMemory() / (1024 * 1024);     // MB
+    
+    LOG.info(String.format("Memory usage [%s]: Used=%dMB, Free=%dMB, Total=%dMB, Max=%dMB", 
+        context, usedMemory, freeMemory, totalMemory, maxMemory));
+    
+    // Warn if memory usage is getting high (>80% of max heap)
+    if (usedMemory > maxMemory * 0.8) {
+      LOG.warning(String.format("HIGH MEMORY USAGE WARNING: Using %dMB of %dMB (%.1f%%)", 
+          usedMemory, maxMemory, (usedMemory * 100.0 / maxMemory)));
+    }
   }
 
 

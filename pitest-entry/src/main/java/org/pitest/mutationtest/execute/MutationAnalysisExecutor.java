@@ -64,12 +64,22 @@ public class MutationAnalysisExecutor {
 
   private void processResult(List<Future<MutationMetaData>> results)
           throws InterruptedException, ExecutionException {
+    int processedCount = 0;
+    
     for (Future<MutationMetaData> f : results) {
       MutationMetaData metaData = f.get();
       for (ClassMutationResults cr : resultInterceptor.modify(metaData.toClassResults())) {
         for (MutationResultListener listener : this.listeners) {
           listener.handleMutationResult(cr);
         }
+      }
+      
+      processedCount++;
+      
+      // Suggest garbage collection every 10 processed units to prevent memory accumulation
+      // This is especially important in fullMatrixResearchMode with large detailed results
+      if (processedCount % 10 == 0) {
+        System.gc();
       }
     }
 
@@ -81,6 +91,10 @@ public class MutationAnalysisExecutor {
       }
     }
 
+    // Final garbage collection suggestion after all results are processed
+    if (processedCount > 0) {
+      System.gc();
+    }
   }
 
   private void signalRunStartToAllListeners() {
