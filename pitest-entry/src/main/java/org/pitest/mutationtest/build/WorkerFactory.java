@@ -81,56 +81,58 @@ public class WorkerFactory {
         .andBaseDir(this.baseDir).andStdout(captureStdOutIfVerbose())
         .andStderr(captureStdErrIfVerbose());
     
-    // Add special memory handling for full matrix research mode
-    if (this.fullMatrixResearchMode) {
-      // Get existing JVM args and filter out memory settings
-      final java.util.List<String> existingArgs = this.config.getLaunchOptions().getChildJVMArgs();
+    // // Add special memory handling for full matrix research mode
+    // if (this.fullMatrixResearchMode) {
+    //   // Get existing JVM args and filter out memory settings
+    //   final java.util.List<String> existingArgs = this.config.getLaunchOptions().getChildJVMArgs();
       
-      Log.getLogger().info("WorkerFactory: Applying optimized memory allocation for mutation testing workers");
+    //   Log.getLogger().info("WorkerFactory: Applying optimized memory allocation for mutation testing workers");
       
-      // Calculate optimal memory allocation for workers based on system resources and thread count
-      MemoryAllocation memAlloc = calculateOptimalMemoryAllocation();
+    //   // Calculate optimal memory allocation for workers based on system resources and thread count
+    //   MemoryAllocation memAlloc = calculateOptimalMemoryAllocation();
       
-      Log.getLogger().info("Optimized memory allocation strategy for 32GB system:");
-      Log.getLogger().info("  Total system memory: " + memAlloc.systemMemoryMB + "MB");
-      Log.getLogger().info("  Main process memory: " + memAlloc.mainProcessMemoryMB + "MB");
-      Log.getLogger().info("  Reserved for OS: " + memAlloc.reservedForOSMB + "MB");
-      Log.getLogger().info("  Available for workers: " + memAlloc.availableForWorkersMB + "MB");
-      Log.getLogger().info("  Thread count: " + memAlloc.threadCount);
-      Log.getLogger().info("  Worker memory per thread: " + memAlloc.workerMemoryMB + "MB (realistic allocation)");
-      Log.getLogger().info("  Total worker memory: " + (memAlloc.workerMemoryMB * memAlloc.threadCount) + "MB");
+    //   Log.getLogger().info("Optimized memory allocation strategy for 32GB system:");
+    //   Log.getLogger().info("  Total system memory: " + memAlloc.systemMemoryMB + "MB");
+    //   Log.getLogger().info("  Main process memory: " + memAlloc.mainProcessMemoryMB + "MB");
+    //   Log.getLogger().info("  Reserved for OS: " + memAlloc.reservedForOSMB + "MB");
+    //   Log.getLogger().info("  Available for workers: " + memAlloc.availableForWorkersMB + "MB");
+    //   Log.getLogger().info("  Thread count: " + memAlloc.threadCount);
+    //   Log.getLogger().info("  Worker memory per thread: " + memAlloc.workerMemoryMB + "MB (realistic allocation)");
+    //   Log.getLogger().info("  Total worker memory: " + (memAlloc.workerMemoryMB * memAlloc.threadCount) + "MB");
       
-      // Filter out any existing memory settings to avoid conflicts
-      final java.util.List<String> filteredArgs = existingArgs.stream()
-          .filter(opt -> !opt.startsWith("-Xmx") && !opt.startsWith("-Xms"))
-          .collect(java.util.stream.Collectors.toList());
+    //   // Filter out any existing memory settings to avoid conflicts
+    //   final java.util.List<String> filteredArgs = existingArgs.stream()
+    //       .filter(opt -> !opt.startsWith("-Xmx") && !opt.startsWith("-Xms"))
+    //       .collect(java.util.stream.Collectors.toList());
       
-      // Add calculated memory settings for workers
-      final java.util.List<String> memoryOptimizedArgs = new java.util.ArrayList<>(filteredArgs);
-      memoryOptimizedArgs.addAll(memAlloc.toJvmArgs());
+    //   // Add calculated memory settings for workers
+    //   final java.util.List<String> memoryOptimizedArgs = new java.util.ArrayList<>(filteredArgs);
+    //   memoryOptimizedArgs.addAll(memAlloc.toJvmArgs());
       
-      Log.getLogger().info("Applied realistic memory optimizations for workers based on actual PIT requirements");
-      Log.getLogger().info("Worker JVM settings: "
-                         + String.join(" ", memoryOptimizedArgs.stream()
-                                         .filter(arg -> arg.startsWith("-X") || arg.startsWith("-XX:"))
-                                         .toArray(String[]::new)));
+    //   Log.getLogger().info("Applied realistic memory optimizations for workers based on actual PIT requirements");
+    //   Log.getLogger().info("Worker JVM settings: "
+    //                      + String.join(" ", memoryOptimizedArgs.stream()
+    //                                      .filter(arg -> arg.startsWith("-X") || arg.startsWith("-XX:"))
+    //                                      .toArray(String[]::new)));
       
-      // Safety checks and recommendations
-      memAlloc.logSafetyWarnings();
+    //   // Safety checks and recommendations
+    //   memAlloc.logSafetyWarnings();
       
-      // Create new LaunchOptions with the optimized memory settings
-      final org.pitest.process.LaunchOptions optimizedLaunchOptions = 
-          new org.pitest.process.LaunchOptions(
-              this.config.getLaunchOptions().getJavaAgentFinder(),
-              this.config.getLaunchOptions().getJavaExecutableLocator(),
-              memoryOptimizedArgs,
-              this.config.getLaunchOptions().getEnvironmentVariables()
-          );
+    //   // Create new LaunchOptions with the optimized memory settings
+    //   final org.pitest.process.LaunchOptions optimizedLaunchOptions = 
+    //       new org.pitest.process.LaunchOptions(
+    //           this.config.getLaunchOptions().getJavaAgentFinder(),
+    //           this.config.getLaunchOptions().getJavaExecutableLocator(),
+    //           memoryOptimizedArgs,
+    //           this.config.getLaunchOptions().getEnvironmentVariables()
+    //       );
       
-      args = args.andLaunchOptions(optimizedLaunchOptions);
-    } else {
-      args = args.andLaunchOptions(this.config.getLaunchOptions());
-    }
+    //   args = args.andLaunchOptions(optimizedLaunchOptions);
+    // } else {
+    //   args = args.andLaunchOptions(this.config.getLaunchOptions());
+    // }
+
+    args = args.andLaunchOptions(this.config.getLaunchOptions());
 
     final SocketFinder sf = new SocketFinder();
     return new MutationTestProcess(

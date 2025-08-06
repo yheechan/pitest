@@ -88,51 +88,17 @@ public class MutationTestUnit implements MutationAnalysisUnit {
     final Collection<MutationDetails> remainingMutations = mutations
         .getUnrunMutations();
     
-    // In full matrix research mode, limit batch size to prevent memory issues
-    Collection<MutationDetails> batchToProcess = remainingMutations;
-    if (this.workerFactory.isFullMatrixResearchMode()) {
-      final int testClassCount = testClassesFor(remainingMutations).size();
-      final int maxBatchSize = calculateSafeBatchSize(testClassCount);
-      
-      if (remainingMutations.size() > maxBatchSize) {
-        batchToProcess = remainingMutations.stream()
-            .limit(maxBatchSize)
-            .collect(java.util.stream.Collectors.toList());
-        LOG.info("Processing mutation batch of " + batchToProcess.size() 
-                  + " mutations (out of " + remainingMutations.size() 
-                  + " remaining) to prevent memory issues with " + testClassCount + " test classes");
-      }
-    }
-    
     final MutationTestProcess worker = this.workerFactory.createWorker(
-        batchToProcess, testClassesFor(batchToProcess));
+        remainingMutations, testClassesFor(remainingMutations));
     worker.start();
 
     setFirstMutationToStatusOfStartedInCaseMinionFailsAtBoot(mutations,
-        batchToProcess);
+        remainingMutations);
 
     final ExitCode exitCode = waitForMinionToDie(worker);
     worker.results(mutations);
 
     correctResultForProcessExitCode(mutations, exitCode);
-  }
-  
-  /**
-   * Calculate a safe batch size for mutations based on the number of test classes.
-   * This helps prevent OutOfMemoryError in full matrix research mode.
-   */
-  private int calculateSafeBatchSize(int testClassCount) {
-    // Base calculation: larger test suites need smaller mutation batches
-    // This is a heuristic to balance memory usage vs. processing efficiency
-    if (testClassCount > 1000) {
-      return 5;  // Very large test suites: process 5 mutations at a time
-    } else if (testClassCount > 500) {
-      return 10; // Large test suites: process 10 mutations at a time
-    } else if (testClassCount > 100) {
-      return 25; // Medium test suites: process 25 mutations at a time
-    } else {
-      return 50; // Small test suites: process 50 mutations at a time
-    }
   }
 
   private Set<ClassName> testClassesFor(Collection<MutationDetails> remainingMutations) {

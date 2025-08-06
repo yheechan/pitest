@@ -60,6 +60,22 @@ public class MutationStatusMap {
 
   }
 
+  /**
+   * Clear all results from memory after they have been processed to CSV files.
+   * This frees up significant RAM, especially for large mutation test runs with detailed results.
+   * Should only be called after all results have been written to output files.
+   */
+  public void clearResultsAfterReporting() {
+    this.mutationMap.clear();
+  }
+
+  /**
+   * Get the current size of stored results for memory monitoring.
+   */
+  public int getResultCount() {
+    return this.mutationMap.size();
+  }
+
   public boolean hasUnrunMutations() {
     return !getUnrunMutations().isEmpty();
   }

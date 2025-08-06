@@ -32,6 +32,10 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
     private final List<MutationResultSummary> mutationSummaries = new ArrayList<>();
     private List<String> orderedTestNames; // Consistent test order for bit sequences
 
+    // Memory optimization fields
+    private int processedMutationCount = 0;
+    private long memoryFreedEstimate = 0;
+
     public FullMutationMatrixCSVReportListener(final ResultOutputStrategy outputStrategy) throws IOException {
         this(outputStrategy, null, null);
     }
@@ -133,7 +137,24 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
                     mutationSummaries.add(new MutationResultSummary(uniqueMutationId, 
                         mutantDescription, numTestsRun, status));
                 }
+                
+                // Memory optimization: estimate memory freed for this individual mutation
+                estimateMemoryFreed(mutation);
+                
+                // Memory optimization: Clear memory for THIS SPECIFIC MUTATION immediately after processing
+                // This is critical to prevent RAM accumulation in the main process
+                clearIndividualMutationResults(mutation);
+                
+                processedMutationCount++;
+                
+                // Flush output and report progress periodically
+                if (processedMutationCount % 10 == 0) {
+                    out.flush();
+                    System.out.println("Memory optimization: Processed " + processedMutationCount + " mutations. "
+                        + "Estimated memory freed: " + formatMemorySize(memoryFreedEstimate));
+                }
             }
+            
         } catch (IOException e) {
             throw new RuntimeException("Error writing mutation data", e);
         }
@@ -466,6 +487,8 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
     public void runEnd() {
         try {
             out.close();
+            System.out.println("Memory optimization: Completed mutation testing. Total mutations processed: " + processedMutationCount);
+            System.out.println("Memory optimization: Total estimated memory freed: " + formatMemorySize(memoryFreedEstimate));
         } catch (IOException e) {
             throw new RuntimeException("Error closing CSV file", e);
         }
@@ -477,5 +500,70 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         } catch (Exception e) {
             System.err.println("WARNING: Failed to create mutation summary CSV: " + e.getMessage());
         }
+    }
+
+    /**
+     * Memory optimization: Clear memory for a single mutation result immediately after processing.
+     * This is the key optimization that prevents RAM accumulation during large mutation test runs.
+     * Called once per individual mutation to ensure immediate cleanup.
+     */
+    private void clearIndividualMutationResults(MutationResult mutation) {
+        // Clear the detailed results from this specific mutation to free memory immediately
+        if (mutation.getDetailedResults() != null) {
+            System.out.println("Memory optimization: Clearing detailed results for mutation " 
+                + mutation.getDetails().getMutantId() + " (" + mutation.getDetailedResults().size() + " test results)");
+            mutation.getDetailedResults().clear();
+        }
+        
+        // Suggest garbage collection every 50 mutations for better memory management
+        if (processedMutationCount % 50 == 0) {
+            System.gc();
+            System.out.println("Memory optimization: Suggested garbage collection after " + processedMutationCount + " mutations");
+        }
+    }
+
+    /**
+     * Memory optimization: Estimate memory usage per mutation result for tracking.
+     */
+    private void estimateMemoryFreed(MutationResult mutation) {
+        // Estimate memory usage per mutation result
+        long estimatedSize = 0;
+        
+        // MutationStatusTestPair base size
+        estimatedSize += 200; // Base object overhead
+        
+        // Lists in MutationStatusTestPair  
+        estimatedSize += mutation.getKillingTests().size() * 50; // String references
+        estimatedSize += mutation.getSucceedingTests().size() * 50;
+        estimatedSize += mutation.getCoveringTests().size() * 50;
+        
+        // DetailedMutationTestResult objects (can be large)
+        List<DetailedMutationTestResult> detailedResults = mutation.getDetailedResults();
+        if (detailedResults != null) {
+            for (DetailedMutationTestResult result : detailedResults) {
+                estimatedSize += 500; // Base object
+                estimatedSize += result.getTestName().length() * 2;
+                estimatedSize += result.getExceptionMessage().length() * 2;
+                estimatedSize += result.getStackTrace().length() * 2;
+            }
+        }
+        
+        memoryFreedEstimate += estimatedSize;
+    }
+
+    /**
+     * Memory optimization: Format memory size for human-readable output.
+     */
+    private String formatMemorySize(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        if (bytes < 1024 * 1024) {
+            return String.format("%.1f KB", bytes / 1024.0);
+        }
+        if (bytes < 1024 * 1024 * 1024) {
+            return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
+        }
+        return String.format("%.1f GB", bytes / (1024.0 * 1024.0 * 1024.0));
     }
 }
