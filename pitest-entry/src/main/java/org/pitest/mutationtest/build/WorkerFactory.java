@@ -86,18 +86,18 @@ public class WorkerFactory {
       // Get existing JVM args and filter out memory settings
       final java.util.List<String> existingArgs = this.config.getLaunchOptions().getChildJVMArgs();
       
-      Log.getLogger().info("WorkerFactory: Applying smart memory allocation for mutation testing workers");
+      Log.getLogger().info("WorkerFactory: Applying optimized memory allocation for mutation testing workers");
       
       // Calculate optimal memory allocation for workers based on system resources and thread count
       MemoryAllocation memAlloc = calculateOptimalMemoryAllocation();
       
-      Log.getLogger().info("Memory allocation strategy for 32GB system:");
+      Log.getLogger().info("Optimized memory allocation strategy for 32GB system:");
       Log.getLogger().info("  Total system memory: " + memAlloc.systemMemoryMB + "MB");
       Log.getLogger().info("  Main process memory: " + memAlloc.mainProcessMemoryMB + "MB");
       Log.getLogger().info("  Reserved for OS: " + memAlloc.reservedForOSMB + "MB");
       Log.getLogger().info("  Available for workers: " + memAlloc.availableForWorkersMB + "MB");
       Log.getLogger().info("  Thread count: " + memAlloc.threadCount);
-      Log.getLogger().info("  Worker memory per thread: " + memAlloc.workerMemoryMB + "MB");
+      Log.getLogger().info("  Worker memory per thread: " + memAlloc.workerMemoryMB + "MB (realistic allocation)");
       Log.getLogger().info("  Total worker memory: " + (memAlloc.workerMemoryMB * memAlloc.threadCount) + "MB");
       
       // Filter out any existing memory settings to avoid conflicts
@@ -109,7 +109,7 @@ public class WorkerFactory {
       final java.util.List<String> memoryOptimizedArgs = new java.util.ArrayList<>(filteredArgs);
       memoryOptimizedArgs.addAll(memAlloc.toJvmArgs());
       
-      Log.getLogger().info("Applied intelligent memory optimizations for workers based on system resources");
+      Log.getLogger().info("Applied realistic memory optimizations for workers based on actual PIT requirements");
       Log.getLogger().info("Worker JVM settings: "
                          + String.join(" ", memoryOptimizedArgs.stream()
                                          .filter(arg -> arg.startsWith("-X") || arg.startsWith("-XX:"))
@@ -174,33 +174,33 @@ public class WorkerFactory {
     int threadCount = this.numberOfThreads;
     long workerMemoryMB;
     
-    // Thread-based allocation strategy for 32GB systems
+    // Thread-based allocation strategy for 32GB systems - OPTIMIZED for realistic needs
     if (threadCount == 1) {
-      // Single thread: can use most remaining memory
-      workerMemoryMB = Math.min(8192, availableForWorkersMB); // Max 8GB for single worker
+      // Single thread: generous allocation but not excessive
+      workerMemoryMB = Math.min(2048, availableForWorkersMB); // Max 2GB for single worker (was 8GB)
     } else if (threadCount <= 4) {
-      // Low thread count (2-4): generous memory per worker
-      workerMemoryMB = Math.max(4096, availableForWorkersMB / threadCount);
-      workerMemoryMB = Math.min(workerMemoryMB, 6144); // Max 6GB per worker
+      // Low thread count (2-4): efficient allocation
+      workerMemoryMB = Math.max(1024, availableForWorkersMB / threadCount);
+      workerMemoryMB = Math.min(workerMemoryMB, 1536); // Max 1.5GB per worker (was 6GB)
     } else if (threadCount <= 8) {
       // Medium thread count (5-8): balanced allocation
-      workerMemoryMB = Math.max(2048, availableForWorkersMB / threadCount);
-      workerMemoryMB = Math.min(workerMemoryMB, 4096); // Max 4GB per worker
+      workerMemoryMB = Math.max(768, availableForWorkersMB / threadCount);
+      workerMemoryMB = Math.min(workerMemoryMB, 1024); // Max 1GB per worker (was 4GB)
     } else if (threadCount <= 16) {
-      // High thread count (9-16): conservative allocation
-      workerMemoryMB = Math.max(1536, availableForWorkersMB / threadCount);
-      workerMemoryMB = Math.min(workerMemoryMB, 2048); // Max 2GB per worker
+      // High thread count (9-16): efficient allocation
+      workerMemoryMB = Math.max(512, availableForWorkersMB / threadCount);
+      workerMemoryMB = Math.min(workerMemoryMB, 768); // Max 768MB per worker (was 2GB)
     } else {
-      // Very high thread count (17+): minimal allocation
-      workerMemoryMB = Math.max(1024, availableForWorkersMB / threadCount);
-      workerMemoryMB = Math.min(workerMemoryMB, 1536); // Max 1.5GB per worker
+      // Very high thread count (17+): minimal but sufficient allocation
+      workerMemoryMB = Math.max(512, availableForWorkersMB / threadCount);
+      workerMemoryMB = Math.min(workerMemoryMB, 768); // Max 768MB per worker (was 1.5GB)
     }
     
     // Additional optimization for mutation unit size 1 (very small batches)
     if (this.mutationUnitSize == 1 && threadCount > 8) {
-      // For unit size 1 with many threads, we can be more aggressive
-      workerMemoryMB = Math.max(1024, workerMemoryMB);
-      Log.getLogger().info("Mutation unit size 1 detected - optimizing for small batch processing");
+      // For unit size 1 with many threads, even smaller allocation is sufficient
+      workerMemoryMB = Math.max(512, workerMemoryMB);
+      Log.getLogger().info("Mutation unit size 1 detected - using optimized memory for small batch processing");
     }
     
     return new MemoryAllocation(systemMemoryMB, mainProcessMemoryMB, reservedForOSMB, 
