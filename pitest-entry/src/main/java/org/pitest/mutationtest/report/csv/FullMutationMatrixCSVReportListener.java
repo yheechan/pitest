@@ -31,6 +31,7 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
     private final Map<String, TestCaseMetadata> testCaseMetadata;
     private final List<MutationResultSummary> mutationSummaries = new ArrayList<>();
     private List<String> orderedTestNames; // Consistent test order for bit sequences
+    private int totalDetailedResultsFreed = 0; // Track memory optimization impact
 
     public FullMutationMatrixCSVReportListener(final ResultOutputStrategy outputStrategy) throws IOException {
         this(outputStrategy, null, null);
@@ -109,6 +110,9 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
                 List<DetailedMutationTestResult> detailedResults = mutation.getDetailedResults();
                 
                 if (detailedResults != null && !detailedResults.isEmpty()) {
+                    // Store size before clearing for summary
+                    int detailedResultsSize = detailedResults.size();
+                    
                     // Save detailed results to file
                     MutationResultsFileManager.saveMutationTestResults(uniqueMutationId, 
                         mutantDescription, detailedResults);
@@ -117,9 +121,27 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
                     writeMutantRowWithBitSequences(String.valueOf(uniqueMutationId), className, methodName, lineNumber, 
                             mutatorName, detailedResults, status, numTestsRun);
                     
-                    // Add to summary
+                    // MEMORY OPTIMIZATION: Clear detailed results after processing to free memory
+                    // This is safe because detailed results are only used for CSV generation
+                    // and all processing is complete at this point
+                    try {
+                        detailedResults.clear();
+                        totalDetailedResultsFreed += detailedResultsSize;
+                        if (uniqueMutationId % 100 == 0) { // Log every 100th mutation to avoid spam
+                            System.out.println("INFO: Cleared detailed results for mutant " + uniqueMutationId + " (freed ~" + detailedResultsSize + " test results from memory)");
+                        }
+                        // Suggest garbage collection periodically to free memory
+                        if (uniqueMutationId % 500 == 0) {
+                            System.gc();
+                        }
+                    } catch (UnsupportedOperationException e) {
+                        // List might be immutable, log warning once per mutation type
+                        System.err.println("WARNING: Could not clear detailed results (immutable list) for mutant " + uniqueMutationId);
+                    }
+                    
+                    // Add to summary using stored size
                     mutationSummaries.add(new MutationResultSummary(uniqueMutationId, 
-                        mutantDescription, detailedResults.size(), status));
+                        mutantDescription, detailedResultsSize, status));
                 } else {
                     // Save empty results to file for legacy mutations
                     MutationResultsFileManager.saveMutationTestResults(uniqueMutationId, 
@@ -455,6 +477,13 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         try {
             MutationResultsFileManager.createMutationSummaryCSV(mutationSummaries);
             System.out.println("INFO: Created mutation summary CSV with " + mutationSummaries.size() + " mutations");
+            
+            // Report memory optimization impact
+            if (totalDetailedResultsFreed > 0) {
+                System.out.println("MEMORY OPTIMIZATION: Successfully freed " + totalDetailedResultsFreed + " detailed test results from memory during CSV processing");
+                System.out.println("MEMORY OPTIMIZATION: This represents approximately " 
+                    + String.format("%.1f", (totalDetailedResultsFreed / 1000.0)) + "K test result objects freed");
+            }
         } catch (Exception e) {
             System.err.println("WARNING: Failed to create mutation summary CSV: " + e.getMessage());
         }
