@@ -15,7 +15,7 @@ import org.pitest.mutationtest.ClassMutationResults;
 import org.pitest.mutationtest.MutationResult;
 import org.pitest.mutationtest.MutationResultListener;
 import org.pitest.mutationtest.execute.DetailedMutationTestResult;
-import org.pitest.mutationtest.execute.MutationResultsFileManager;
+// import org.pitest.mutationtest.execute.MutationResultsFileManager;
 import org.pitest.mutationtest.execute.MutationResultSummary;
 import org.pitest.mutationtest.execute.TestCaseMetadata;
 import org.pitest.util.ResultOutputStrategy;
@@ -52,12 +52,12 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         this.orderedTestNames = createOrderedTestNames();
         
         // Initialize the mutation results file system
-        try {
-            String actualReportDir = reportDir != null ? reportDir : System.getProperty("reportDir", "target/pit-reports");
-            MutationResultsFileManager.initialize(actualReportDir);
-        } catch (IOException e) {
-            System.err.println("WARNING: Failed to initialize mutation results file manager: " + e.getMessage());
-        }
+        // try {
+        //     String actualReportDir = reportDir != null ? reportDir : System.getProperty("reportDir", "target/pit-reports");
+        //     MutationResultsFileManager.initialize(actualReportDir);
+        // } catch (IOException e) {
+        //     System.err.println("WARNING: Failed to initialize mutation results file manager: " + e.getMessage());
+        // }
     }
 
     /**
@@ -113,17 +113,16 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
                     // Store size before clearing for summary
                     int detailedResultsSize = detailedResults.size();
                     
-                    // Save detailed results to file
-                    MutationResultsFileManager.saveMutationTestResults(uniqueMutationId, 
-                        mutantDescription, detailedResults);
+                    // // Save detailed results to file
+                    // MutationResultsFileManager.saveMutationTestResults(uniqueMutationId, 
+                    //     mutantDescription, detailedResults);
                     
                     // Write single row with bit sequences for this mutant
                     writeMutantRowWithBitSequences(String.valueOf(uniqueMutationId), className, methodName, lineNumber, 
                             mutatorName, detailedResults, status, numTestsRun);
                     
                     // MEMORY OPTIMIZATION: Clear detailed results after processing to free memory
-                    // This is safe because detailed results are only used for CSV generation
-                    // and all processing is complete at this point
+                    // This affects BOTH idMap and mutationMap since they reference the same objects
                     try {
                         detailedResults.clear();
                         totalDetailedResultsFreed += detailedResultsSize;
@@ -143,9 +142,9 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
                     mutationSummaries.add(new MutationResultSummary(uniqueMutationId, 
                         mutantDescription, detailedResultsSize, status));
                 } else {
-                    // Save empty results to file for legacy mutations
-                    MutationResultsFileManager.saveMutationTestResults(uniqueMutationId, 
-                        mutantDescription, null);
+                    // // Save empty results to file for legacy mutations
+                    // MutationResultsFileManager.saveMutationTestResults(uniqueMutationId, 
+                    //     mutantDescription, null);
                     
                     // Fall back to legacy approach using killing/surviving test lists
                     writeMutantRowWithLegacyData(mutation, String.valueOf(uniqueMutationId), className, methodName, 
@@ -195,6 +194,7 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         row.append(numTestsRun);
         row.append("\n");
         out.write(row.toString());
+        out.flush(); // MEMORY: Ensure immediate write to disk, don't buffer in memory
     }
 
     /**
@@ -475,7 +475,7 @@ public class FullMutationMatrixCSVReportListener implements MutationResultListen
         
         // Create mutation summary CSV
         try {
-            MutationResultsFileManager.createMutationSummaryCSV(mutationSummaries);
+            // MutationResultsFileManager.createMutationSummaryCSV(mutationSummaries);
             System.out.println("INFO: Created mutation summary CSV with " + mutationSummaries.size() + " mutations");
             
             // Report memory optimization impact
