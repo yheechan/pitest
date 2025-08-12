@@ -46,6 +46,7 @@ public class CoverageData implements CoverageDatabase {
   private final int testCount;
 
   private final List<Description> failingTestDescriptions = new ArrayList<>();
+  private final List<Description> passingTestDescriptions = new ArrayList<>();
   private final List<CoverageResult> allCoverageResults = new ArrayList<>();
 
   public CoverageData(CodeSource code, LineMap lm, int testCount) {
@@ -93,6 +94,10 @@ public class CoverageData implements CoverageDatabase {
 
   public List<Description> getFailingTestDescriptions() {
     return failingTestDescriptions;
+  }
+
+  public List<Description> getPassingTestDescriptions() {
+    return passingTestDescriptions;
   }
 
   @Override
@@ -166,6 +171,10 @@ public class CoverageData implements CoverageDatabase {
       recordTestFailure(cr.getTestUnitDescription());
       LOG.severe(cr.getTestUnitDescription()
           + " did not pass without mutation.");
+    } else {
+      recordTestPass(cr.getTestUnitDescription());
+      LOG.info(cr.getTestUnitDescription()
+          + " passed without mutation.");
     }
   }
 
@@ -179,6 +188,10 @@ public class CoverageData implements CoverageDatabase {
 
   private void recordTestFailure(final Description testDescription) {
     this.failingTestDescriptions.add(testDescription);
+  }
+
+  private void recordTestPass(final Description testDescription) {
+    this.passingTestDescriptions.add(testDescription);
   }
 
   public void storeCoverageResult(final CoverageResult coverageResult) {

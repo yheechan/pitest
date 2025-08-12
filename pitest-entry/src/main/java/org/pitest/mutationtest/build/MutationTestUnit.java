@@ -101,10 +101,10 @@ public class MutationTestUnit implements MutationAnalysisUnit {
   }
 
   private Set<ClassName> testClassesFor(Collection<MutationDetails> remainingMutations) {
-    // In research mode, use all available test classes to ensure complete coverage
-    if (this.workerFactory.isFullMatrixResearchMode()) {
-      return this.codeSource.getTestClassNames();
-    }
+    // // In research mode, use all available test classes to ensure complete coverage
+    // if (this.workerFactory.isFullMatrixResearchMode()) {
+    //   return this.codeSource.getTestClassNames();
+    // }
     
     // Default behavior: only use covering tests
     return remainingMutations.stream()
