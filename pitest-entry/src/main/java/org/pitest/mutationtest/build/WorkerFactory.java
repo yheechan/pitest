@@ -29,6 +29,7 @@ public class WorkerFactory {
   private final Verbosity             verbosity;
   private final boolean               fullMutationMatrix;
   private final boolean               fullMatrixResearchMode;
+  private final boolean               isSaveMutantBytecode;
   private final MutationConfig        config;
   private final EngineArguments       args;
   private final String                reportDir;
@@ -43,6 +44,7 @@ public class WorkerFactory {
       final Verbosity verbosity,
       final boolean fullMutationMatrix,
       final boolean fullMatrixResearchMode,
+      final boolean isSaveMutantBytecode,
       final String classPath,
       final String reportDir,
       final java.util.Map testCaseMetadata) {
@@ -51,6 +53,7 @@ public class WorkerFactory {
     this.verbosity = verbosity;
     this.fullMutationMatrix = fullMutationMatrix;
     this.fullMatrixResearchMode = fullMatrixResearchMode;
+    this.isSaveMutantBytecode = isSaveMutantBytecode;
     this.classPath = classPath;
     this.baseDir = baseDir;
     this.config = mutationConfig;
@@ -68,7 +71,7 @@ public class WorkerFactory {
     // Use the test case metadata that was passed in during construction
     final MinionArguments fileArgs = new MinionArguments(remainingMutations,
         testClasses, this.config.getEngine().getName(), this.args, this.timeoutStrategy,
-        Log.verbosity(), this.fullMutationMatrix, this.fullMatrixResearchMode, this.pitConfig, this.reportDir,
+        Log.verbosity(), this.fullMutationMatrix, this.fullMatrixResearchMode, this.isSaveMutantBytecode, this.pitConfig, this.reportDir,
         this.testCaseMetadata);
 
     final ProcessArgs args = ProcessArgs.withClassPath(this.classPath)
@@ -99,5 +102,9 @@ public class WorkerFactory {
 
   public boolean isFullMatrixResearchMode() {
     return this.fullMatrixResearchMode;
+  }
+
+  public boolean isSaveMutantBytecode() {
+    return this.isSaveMutantBytecode;
   }
 }

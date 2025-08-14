@@ -178,6 +178,11 @@ public enum ConfigOption {
   MEASURE_EXPECTED_TIME("measureExpectedTime", false),
 
   /**
+   * Whether to enable saving of mutant bytecode.
+   */
+  SAVE_MUTANT_BYTECODE("saveMutantBytecode", false),
+
+  /**
    * Maximum number of mutations to include within a single unit of analysis.
    */
   MUTATION_UNIT_SIZE("mutationUnitSize", 0),

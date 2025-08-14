@@ -98,6 +98,7 @@ import static org.pitest.mutationtest.config.ConfigOption.TIME_STAMPED_REPORTS;
 import static org.pitest.mutationtest.config.ConfigOption.USE_CLASSPATH_JAR;
 import static org.pitest.mutationtest.config.ConfigOption.USE_INLINED_CODE_DETECTION;
 import static org.pitest.mutationtest.config.ConfigOption.VERBOSE;
+import static org.pitest.mutationtest.config.ConfigOption.SAVE_MUTANT_BYTECODE;
 import static org.pitest.mutationtest.config.ConfigOption.VERBOSITY;
 
 public class OptionsParser {
@@ -140,6 +141,7 @@ public class OptionsParser {
   private final OptionSpec<String>                   includedTestMethodsSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> fullMutationMatrixSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> fullMatrixResearchModeSpec;
+  private final ArgumentAcceptingOptionSpec<Boolean> saveMutantBytecodeSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> measureExpectedTimeSpec;
   private final OptionSpec<Integer>                  mutationUnitSizeSpec;
   private final ArgumentAcceptingOptionSpec<Boolean> timestampedReportsSpec;
@@ -368,6 +370,13 @@ public class OptionsParser {
             "Whether to enable full matrix research mode (runs all tests for each mutant and exports detailed CSV)")
         .defaultsTo(FULL_MATRIX_RESEARCH_MODE.getDefault(Boolean.class));
 
+    this.saveMutantBytecodeSpec = parserAccepts(SAVE_MUTANT_BYTECODE)
+        .withOptionalArg()
+        .ofType(Boolean.class)
+        .describedAs(
+            "Whether to enable saving of mutant bytecode")
+        .defaultsTo(SAVE_MUTANT_BYTECODE.getDefault(Boolean.class));
+
     this.measureExpectedTimeSpec = parserAccepts(MEASURE_EXPECTED_TIME)
         .withOptionalArg()
         .ofType(Boolean.class)
@@ -489,6 +498,7 @@ public class OptionsParser {
     data.addChildJVMArgs(this.jvmArgsProcessor.values(userArgs));
     data.setFullMutationMatrix(booleanValue(fullMutationMatrixSpec, userArgs));
     data.setFullMatrixResearchMode(researchMode);
+    data.setSaveMutantBytecode(booleanValue(saveMutantBytecodeSpec, userArgs));
     data.setMeasureExpectedTime(booleanValue(measureExpectedTimeSpec, userArgs));
 
     data.setDetectInlinedCode(booleanValue(detectInlinedCode, userArgs));

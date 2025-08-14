@@ -289,8 +289,10 @@ public class TestMutationTesting {
     final WorkerFactory wf = new WorkerFactory(null,
         coverageOptions.getPitConfig(), mutationConfig, arguments,
         new PercentAndConstantTimeoutStrategy(data.getTimeoutFactor(),
-            data.getTimeoutConstant()), data.getVerbosity(), false, false, data.getClassPath()
-            .getLocalClassPath(), null, java.util.Collections.emptyMap());
+            data.getTimeoutConstant()), data.getVerbosity(), 
+            false, false, 
+            false, data.getClassPath().getLocalClassPath(), 
+            null, java.util.Collections.emptyMap());
 
 
 

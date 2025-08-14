@@ -58,8 +58,6 @@ import static org.pitest.functional.Streams.asStream;
 import static org.pitest.functional.prelude.Prelude.not;
 import static org.pitest.functional.prelude.Prelude.or;
 
-// FIXME move all logic to SettingsFactory and turn into simple bean
-
 /**
  * Big ball of user supplied options to configure various aspects of mutation
  * testing.
@@ -121,6 +119,8 @@ public class ReportOptions {
   private boolean                        fullMutationMatrix            = false;
 
   private boolean                        fullMatrixResearchMode        = false;
+
+  private boolean                        saveMutantBytecode           = false;
 
   private boolean                        measureExpectedTime           = false;
 
@@ -459,6 +459,14 @@ public class ReportOptions {
 
   public boolean isFullMatrixResearchMode() {
     return fullMatrixResearchMode;
+  }
+
+  public void setSaveMutantBytecode(final boolean saveMutantBytecode) {
+    this.saveMutantBytecode = saveMutantBytecode;
+  }
+
+  public boolean isSaveMutantBytecode() {
+    return saveMutantBytecode;
   }
 
   public void setMeasureExpectedTime(final boolean measureExpectedTime) {

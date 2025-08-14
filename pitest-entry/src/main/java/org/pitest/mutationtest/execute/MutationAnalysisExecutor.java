@@ -8,6 +8,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.pitest.mutationtest.ClassMutationResults;
@@ -24,13 +25,20 @@ public class MutationAnalysisExecutor {
 
   private final List<MutationResultListener> listeners;
   private final ThreadPoolExecutor           executor;
+  private final boolean                       isSaveMutantBytecode;
 
   private final MutationResultInterceptor resultInterceptor;
 
   public MutationAnalysisExecutor(int numberOfThreads, MutationResultInterceptor interceptor,
       List<MutationResultListener> listeners) {
+    this(numberOfThreads, interceptor, listeners, false);
+  }
+
+  public MutationAnalysisExecutor(int numberOfThreads, MutationResultInterceptor interceptor,
+      List<MutationResultListener> listeners, boolean isSaveMutantBytecode) {
     this.resultInterceptor = interceptor;
     this.listeners = listeners;
+    this.isSaveMutantBytecode = isSaveMutantBytecode;
     this.executor = new ThreadPoolExecutor(numberOfThreads, numberOfThreads,
         10, TimeUnit.SECONDS, new LinkedBlockingQueue<>(),
         Executors.defaultThreadFactory());
@@ -41,7 +49,10 @@ public class MutationAnalysisExecutor {
 
     LOG.fine("Running " + testUnits.size() + " units");
 
-    signalRunStartToAllListeners();
+    // Skip listeners entirely when only saving bytecode
+    if (!this.isSaveMutantBytecode) {
+      signalRunStartToAllListeners();
+    }
 
     final List<Future<MutationMetaData>> results = new ArrayList<>(
         testUnits.size());
@@ -53,13 +64,35 @@ public class MutationAnalysisExecutor {
     this.executor.shutdown();
 
     try {
-      processResult(results);
+      if (this.isSaveMutantBytecode) {
+        // For bytecode-only mode, just wait for completion without processing results
+        processResultsForBytecodeOnly(results);
+      } else {
+        // Standard processing with listeners
+        processResult(results);
+      }
     } catch (final InterruptedException | ExecutionException e) {
       throw Unchecked.translateCheckedException(e);
     }
 
-    signalRunEndToAllListeners();
+    // Skip listeners entirely when only saving bytecode
+    if (!this.isSaveMutantBytecode) {
+      signalRunEndToAllListeners();
+    }
 
+  }
+
+  private void processResultsForBytecodeOnly(List<Future<MutationMetaData>> results)
+          throws InterruptedException, ExecutionException {
+    // For bytecode-only mode, we just need to wait for all tasks to complete
+    // We don't need to process the results through listeners
+    for (Future<MutationMetaData> f : results) {
+      f.get(); // Wait for completion, but discard results
+    }
+    
+    if (LOG.isLoggable(Level.FINE)) {
+      LOG.fine("Completed " + results.size() + " bytecode generation tasks");
+    }
   }
 
   private void processResult(List<Future<MutationMetaData>> results)

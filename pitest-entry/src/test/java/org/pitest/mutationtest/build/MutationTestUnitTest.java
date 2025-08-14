@@ -58,7 +58,8 @@ public class MutationTestUnitTest {
     this.tests = new ArrayList<>();
     this.testee = new MutationTestUnit(this.mutations,
         new WorkerFactory(null, TestPluginArguments.defaults(), this.mutationConfig, EngineArguments.arguments(), this.timeout,
-            Verbosity.DEFAULT, false, false, null, null, java.util.Collections.emptyMap()), this.codeSource);
+            Verbosity.DEFAULT, false, false,
+            false, null, null, java.util.Collections.emptyMap()), this.codeSource);
 
   }
 

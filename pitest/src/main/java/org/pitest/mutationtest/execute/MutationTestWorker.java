@@ -65,6 +65,7 @@ public class MutationTestWorker {
   private final HotSwap                                     hotswap;
   private final boolean                                     fullMutationMatrix;
   private final boolean                                     fullMatrixResearchMode;
+  private final boolean                                     isSaveMutantBytecode;
   private final String                                      reportDir;
 
   private final ResetEnvironment                            reset;
@@ -82,6 +83,7 @@ public class MutationTestWorker {
                             ResetEnvironment reset,
                             boolean fullMutationMatrix,
                             boolean fullMatrixResearchMode,
+                            boolean isSaveMutantBytecode,
                             String reportDir,
                             Map<String, TestCaseMetadata> testCaseMetadata) {
     this.loader = loader;
@@ -90,6 +92,7 @@ public class MutationTestWorker {
     this.hotswap = hotswap;
     this.fullMutationMatrix = fullMutationMatrix;
     this.fullMatrixResearchMode = fullMatrixResearchMode;
+    this.isSaveMutantBytecode = isSaveMutantBytecode;
     this.reportDir = reportDir;
     this.testCaseMetadata = testCaseMetadata;
   }
@@ -125,6 +128,15 @@ public class MutationTestWorker {
 
     // Save mutated bytecode for research mode analysis
     saveMutatedBytecode(mutationDetails, mutatedClass);
+
+    // If isSaveMutantBytecode flag is set, skip all mutation testing and listeners
+    if (this.isSaveMutantBytecode) {
+      if (DEBUG) {
+        LOG.fine("isSaveMutantBytecode flag is set - only saving bytecode for " + mutationId);
+      }
+      // No reporting to listeners, no test execution, just return early
+      return; 
+    }
 
     reset.resetFor(mutatedClass);
 
@@ -247,7 +259,21 @@ public class MutationTestWorker {
       if (this.testCaseMetadata != null && !this.testCaseMetadata.isEmpty()) {
         mutatedListener = BaselineAwareMutationTestListener.fromTestCaseMetadata(this.testCaseMetadata);
       } else {
-        mutatedListener = new BaselineAwareMutationTestListener(this.baselineResults);
+        // Create minimal metadata from baseline results for the factory method
+        Map<String, TestCaseMetadata> minimalMetadata = new HashMap<>();
+        for (Map.Entry<String, Boolean> entry : this.baselineResults.entrySet()) {
+          TestCaseMetadata metadata = new TestCaseMetadata(
+              -1, // No tcID available
+              entry.getKey(),
+              entry.getValue(),
+              "None", // No exception info available
+              "None",
+              "None",
+              0.0 // No execution time available
+          );
+          minimalMetadata.put(entry.getKey(), metadata);
+        }
+        mutatedListener = BaselineAwareMutationTestListener.fromTestCaseMetadata(minimalMetadata);
       }
       final Pitest mutatedPit = new Pitest(mutatedListener);
       mutatedPit.run(c, relevantTests);
@@ -464,7 +490,21 @@ public class MutationTestWorker {
       if (this.testCaseMetadata != null && !this.testCaseMetadata.isEmpty()) {
         baselineListener = BaselineAwareMutationTestListener.fromTestCaseMetadata(this.testCaseMetadata);
       } else {
-        baselineListener = new BaselineAwareMutationTestListener(this.baselineResults);
+        // Create minimal metadata from baseline results for the factory method
+        Map<String, TestCaseMetadata> minimalMetadata = new HashMap<>();
+        for (Map.Entry<String, Boolean> entry : this.baselineResults.entrySet()) {
+          TestCaseMetadata metadata = new TestCaseMetadata(
+              -1, // No tcID available
+              entry.getKey(),
+              entry.getValue(),
+              "None", // No exception info available
+              "None",
+              "None",
+              0.0 // No execution time available
+          );
+          minimalMetadata.put(entry.getKey(), metadata);
+        }
+        baselineListener = BaselineAwareMutationTestListener.fromTestCaseMetadata(minimalMetadata);
       }
       final Pitest pit = new Pitest(baselineListener);
       

@@ -416,7 +416,7 @@ public class MutationCoverage {
         .getConfiguration(), mutationConfig, args,
         new PercentAndConstantTimeoutStrategy(this.data.getTimeoutFactor(),
             this.data.getTimeoutConstant()), this.data.getVerbosity(), this.data.isFullMutationMatrix(),
-            this.data.isFullMatrixResearchMode(), this.data.getClassPath().getLocalClassPath(), this.data.getReportDir(),
+            this.data.isFullMatrixResearchMode(), this.data.isSaveMutantBytecode(), this.data.getClassPath().getLocalClassPath(), this.data.getReportDir(),
             testCaseMetadata);
 
     final MutationGrouper grouper = this.settings.getMutationGrouper().makeFactory(
