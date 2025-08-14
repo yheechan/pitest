@@ -101,7 +101,7 @@ public class MutationTestWorker {
       final TimeOutDecoratedTestSource testSource) throws IOException {
 
     // In research mode, extract baseline results from metadata once for all mutations
-    if (this.fullMatrixResearchMode && this.baselineResults == null) {
+    if (this.fullMatrixResearchMode && this.baselineResults == null && !this.isSaveMutantBytecode) {
       extractBaselineResultsFromMetadata();
     }
 
@@ -339,10 +339,14 @@ public class MutationTestWorker {
 
 
 
+  // Cache for created directories to avoid repeated directory creation checks
+  private final Map<String, Path> directoryCache = new HashMap<>();
+
   /**
    * Save the mutated bytecode to disk for analysis purposes.
    * Only used in fullMatrixResearchMode when reportDir is available.
    * Creates a directory structure: reportDir/mutants/ClassName/MethodName/
+   * Optimized version with directory caching and reduced string operations.
    */
   private void saveMutatedBytecode(final MutationDetails mutationDetails, final Mutant mutatedClass) {
     if (!this.fullMatrixResearchMode || this.reportDir == null || this.reportDir.isEmpty()) {
@@ -350,71 +354,34 @@ public class MutationTestWorker {
     }
     
     try {
-      // Create structured directory under reportDir/mutants/
+      // Cache directory path computation
       final String className = mutationDetails.getId().getClassName().asJavaName();
       final String methodName = mutatedClass.getDetails().getMethod();
-      final int lineNumber = mutatedClass.getDetails().getLineNumber();
-      final int mutationIndex = mutatedClass.getDetails().getFirstIndex();
-      final String mutator = mutatedClass.getDetails().getMutator();
+      final String dirKey = className + ":" + methodName;
       
-      // Create directory structure: mutants/ClassName/MethodName/
-      final Path classDir = Paths.get(this.reportDir, "mutants", className.replace('.', File.separatorChar), methodName);
-      Files.createDirectories(classDir);
+      Path classDir = directoryCache.get(dirKey);
+      if (classDir == null) {
+        classDir = Paths.get(this.reportDir, "mutants", className.replace('.', File.separatorChar), methodName);
+        Files.createDirectories(classDir);
+        directoryCache.put(dirKey, classDir);
+      }
       
-      // Note: Original bytecode is now saved once in main process for efficiency
-      
-      // Create a descriptive filename using the assigned mutation ID
-      // Format: <mutationID>_byte_code.class
+      // Use optimized filename generation
       final long mutantId = mutationDetails.getMutantId();
-      final String filename = String.format("%d_byte_code.class", mutantId);
+      final Path bytecodeFile = classDir.resolve(mutantId + "_byte_code.class");
       
-      final Path bytecodeFile = classDir.resolve(filename);
-      
-      // Write the mutated bytecode
+      // Write the mutated bytecode - this is the critical operation
       Files.write(bytecodeFile, mutatedClass.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
       
-      // Also create a metadata file with detailed information about this mutant
-      final String metadataFilename = String.format("%d_byte_code.info", mutantId);
-      final Path metadataFile = classDir.resolve(metadataFilename);
-      final String metadata = String.format(
-          "Mutation ID: %s%n"
-          + "Assigned Mutant ID: %d%n"
-          + "Class: %s%n"
-          + "Method: %s%n"
-          + "Line Number: %d%n"
-          + "Mutation Index: %d%n"
-          + "Mutator: %s%n"
-          + "Description: %s%n"
-          + "Bytecode Size: %d bytes%n"
-          + "Bytecode File: %s%n"
-          + "Original Class File: ORIGINAL_%s.class (saved by main process)%n"
-          + "%n"
-          + "To compare with original:%n"
-          + "  diff <(javap -c %s) <(javap -c ORIGINAL_%s.class)%n"
-          + "%n"
-          + "To decompile this bytecode to Java source, you can use:%n"
-          + "  javap -c -p %s%n"
-          + "  Or use any Java decompiler like CFR, Fernflower, or JD-GUI%n",
-          mutationDetails.getId().toString(),
-          mutantId,
-          className,
-          methodName,
-          lineNumber,
-          mutationIndex,
-          mutator,
-          mutatedClass.getDetails().getDescription(),
-          mutatedClass.getBytes().length,
-          filename,
-          className.substring(className.lastIndexOf('.') + 1),
-          filename,
-          className.substring(className.lastIndexOf('.') + 1),
-          filename
-      );
-      Files.write(metadataFile, metadata.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+      // Only create metadata file if explicitly needed - make this optional
+      if (shouldCreateMetadataFile()) {
+        final Path metadataFile = classDir.resolve(mutantId + "_byte_code.info");
+        final String metadata = createOptimizedMetadata(mutationDetails, mutatedClass, className, methodName, mutantId);
+        Files.write(metadataFile, metadata.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+      }
       
       if (DEBUG) {
         LOG.fine("Saved mutated bytecode for " + mutationDetails.getId() + " to " + bytecodeFile);
-        LOG.fine("Saved mutation metadata to " + metadataFile);
       }
       
     } catch (final Exception ex) {
@@ -423,6 +390,43 @@ public class MutationTestWorker {
         ex.printStackTrace();
       }
     }
+  }
+
+  /**
+   * Determine if metadata files should be created (can be made configurable)
+   */
+  private boolean shouldCreateMetadataFile() {
+    // Could be made configurable via a flag for further optimization
+    return true; // Keep current behavior for now
+  }
+
+  /**
+   * Create optimized metadata using StringBuilder for better performance
+   */
+  private String createOptimizedMetadata(final MutationDetails mutationDetails, final Mutant mutatedClass, 
+                                       final String className, final String methodName, final long mutantId) {
+    final StringBuilder sb = new StringBuilder(512); // Pre-allocate reasonable size
+    final String shortClassName = className.substring(className.lastIndexOf('.') + 1);
+    final String filename = mutantId + "_byte_code.class";
+    
+    sb.append("Mutation ID: ").append(mutationDetails.getId().toString()).append('\n')
+      .append("Assigned Mutant ID: ").append(mutantId).append('\n')
+      .append("Class: ").append(className).append('\n')
+      .append("Method: ").append(methodName).append('\n')
+      .append("Line Number: ").append(mutatedClass.getDetails().getLineNumber()).append('\n')
+      .append("Mutation Index: ").append(mutatedClass.getDetails().getFirstIndex()).append('\n')
+      .append("Mutator: ").append(mutatedClass.getDetails().getMutator()).append('\n')
+      .append("Description: ").append(mutatedClass.getDetails().getDescription()).append('\n')
+      .append("Bytecode Size: ").append(mutatedClass.getBytes().length).append(" bytes\n")
+      .append("Bytecode File: ").append(filename).append('\n')
+      .append("Original Class File: ORIGINAL_").append(shortClassName).append(".class (saved by main process)\n\n")
+      .append("To compare with original:\n")
+      .append("  diff <(javap -c ").append(filename).append(") <(javap -c ORIGINAL_").append(shortClassName).append(".class)\n\n")
+      .append("To decompile this bytecode to Java source, you can use:\n")
+      .append("  javap -c -p ").append(filename).append('\n')
+      .append("  Or use any Java decompiler like CFR, Fernflower, or JD-GUI\n");
+    
+    return sb.toString();
   }
 
   private static Container createNewContainer() {

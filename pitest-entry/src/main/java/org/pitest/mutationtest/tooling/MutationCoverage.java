@@ -234,11 +234,21 @@ public class MutationCoverage {
 
     ReportCoverage modifiedCoverage = transformCoverage(coverageData);
     final MutationStatisticsListener stats = new MutationStatisticsListener();
-    final List<MutationResultListener> config = createConfig(t0, modifiedCoverage, history,
-                stats, engine, issues, testCaseMetadata);
+    
+    // Check if we're in bytecode-only mode
+    final boolean isSaveMutantBytecode = this.data.isSaveMutantBytecode();
+    
+    final List<MutationResultListener> config;
+    if (isSaveMutantBytecode) {
+      // For bytecode-only mode, create minimal listeners (no CSV reports, no HTML, etc.)
+      config = createMinimalConfig();
+    } else {
+      // Standard mode with full listeners
+      config = createConfig(t0, modifiedCoverage, history, stats, engine, issues, testCaseMetadata);
+    }
 
     final MutationAnalysisExecutor mae = new MutationAnalysisExecutor(
-        numberOfThreads(), resultInterceptor(), config);
+        numberOfThreads(), resultInterceptor(), config, isSaveMutantBytecode);
     this.timings.registerStart(Timings.Stage.RUN_MUTATION_TESTS);
     mae.run(tus);
     this.timings.registerEnd(Timings.Stage.RUN_MUTATION_TESTS);
@@ -339,6 +349,18 @@ public class MutationCoverage {
     if (this.data.getVerbosity().showSpinner()) {
       ls.add(new SpinnerListener(System.out));
     }
+    return ls;
+  }
+
+  private List<MutationResultListener> createMinimalConfig() {
+    // For bytecode-only mode, create minimal listeners - no CSV reports, no HTML, etc.
+    final List<MutationResultListener> ls = new ArrayList<>();
+    
+    // Only add essential listeners for basic functionality
+    if (this.data.getVerbosity().showSpinner()) {
+      ls.add(new SpinnerListener(System.out));
+    }
+    
     return ls;
   }
 
